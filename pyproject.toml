@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "radiology-vqa"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "datasets>=2.14",
+    "Pillow>=10.0",
+    "pydicom>=2.4",
+    "numpy>=1.24",
+    "python-dotenv>=1.0",
+    "sentence-transformers>=2.2,<4.0",
+    "faiss-cpu>=1.7",
+    "torch>=2.0,<2.3",
+    "transformers>=4.40,<4.49",
+    "accelerate>=0.25",
+    "bitsandbytes>=0.41",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.1",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: marks tests that require dataset downloads",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
