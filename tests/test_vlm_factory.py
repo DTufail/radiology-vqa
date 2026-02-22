@@ -15,7 +15,18 @@ def test_factory_unknown_backend_raises():
 
 
 @pytest.mark.slow
-def test_factory_llava_med_returns_vlm_interface():
+def test_factory_llava_returns_vlm_interface():
+    from radiology_vqa.config import Settings
+    from radiology_vqa.vlm.factory import create_vlm_backend
+
+    config = Settings(vlm_backend="llava", vlm_quantize="none")
+    backend = create_vlm_backend(config)
+    assert isinstance(backend, VLMInterface)
+
+
+@pytest.mark.slow
+def test_factory_llava_med_alias_returns_vlm_interface():
+    """llava_med is a backward-compat alias for llava."""
     from radiology_vqa.config import Settings
     from radiology_vqa.vlm.factory import create_vlm_backend
 

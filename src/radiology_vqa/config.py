@@ -23,8 +23,8 @@ class Settings(BaseSettings):
     retrieval_min_score: float = 0.3
 
     # VLM settings
-    vlm_backend: str = "llava_med"  # "llava_med" or "blip2"
-    vlm_model_id: str = "microsoft/llava-med-v1.5-mistral-7b"
+    vlm_backend: str = "llava"  # "llava", "llava_med" (alias), or "blip2"
+    vlm_model_id: str = "llava-hf/llava-v1.6-mistral-7b-hf"
     vlm_quantize: str = "4bit"  # "4bit", "8bit", "none"
     vlm_max_new_tokens: int = 128
     vlm_device: str = "auto"  # "auto", "cuda", "cpu"

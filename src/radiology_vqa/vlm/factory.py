@@ -27,11 +27,21 @@ def create_vlm_backend(config: Settings) -> VLMInterface:
     backend = config.vlm_backend
     logger.info("Creating VLM backend: %s", backend)
 
-    if backend == "llava_med":
-        from radiology_vqa.vlm.llava_med import LLaVAMedBackend
+    if backend in ("llava", "llava_med"):
+        from radiology_vqa.vlm.llava import LLaVABackend
 
-        return LLaVAMedBackend(
-            model_id=config.vlm_model_id,
+        model_id = config.vlm_model_id
+        # If the config still points at the old LLaVA-Med checkpoint, redirect
+        # to the HF-native LLaVA v1.6 checkpoint automatically.
+        if model_id == "microsoft/llava-med-v1.5-mistral-7b":
+            model_id = "llava-hf/llava-v1.6-mistral-7b-hf"
+            logger.info(
+                "vlm_model_id still points to llava-med-v1.5; "
+                "redirecting to llava-v1.6-mistral-7b-hf."
+            )
+
+        return LLaVABackend(
+            model_id=model_id,
             quantize=config.vlm_quantize,
             device=config.vlm_device,
             max_new_tokens=config.vlm_max_new_tokens,
@@ -40,13 +50,14 @@ def create_vlm_backend(config: Settings) -> VLMInterface:
     if backend == "blip2":
         from radiology_vqa.vlm.blip2 import BLIP2Backend
 
-        # Use BLIP-2's own default model_id when the config still holds the
-        # LLaVA-Med default (i.e. the user switched backend without updating model_id).
         model_id = config.vlm_model_id
-        if model_id == "microsoft/llava-med-v1.5-mistral-7b":
+        if model_id in (
+            "microsoft/llava-med-v1.5-mistral-7b",
+            "llava-hf/llava-v1.6-mistral-7b-hf",
+        ):
             model_id = "Salesforce/blip2-opt-2.7b"
             logger.info(
-                "vlm_backend=blip2 but vlm_model_id still points to llava-med; "
+                "vlm_backend=blip2 but vlm_model_id points to a LLaVA model; "
                 "using BLIP-2 default model_id: %s",
                 model_id,
             )
@@ -59,5 +70,5 @@ def create_vlm_backend(config: Settings) -> VLMInterface:
         )
 
     raise ValueError(
-        f"Unknown VLM backend: {backend!r}. Supported values: 'llava_med', 'blip2'."
+        f"Unknown VLM backend: {backend!r}. Supported values: 'llava', 'llava_med', 'blip2'."
     )

@@ -467,8 +467,9 @@ class LLaVAMedBackend:
         # ── Step 2: infer device placement ───────────────────────────────────
         no_split = getattr(model, "_no_split_modules", [])
         if torch.cuda.is_available():
-            # Leave ~1.5 GB headroom on the T4 (14.56 GB usable)
-            max_mem: dict = {"cuda:0": "13GiB", "cpu": "15GiB"}
+            # Leave ~1.5 GB headroom on the T4 (14.56 GB usable).
+            # accelerate >= 0.27 requires integer keys for CUDA devices (not "cuda:0").
+            max_mem: dict = {0: "13GiB", "cpu": "15GiB"}
         else:
             max_mem = {"cpu": "60GiB"}
 
