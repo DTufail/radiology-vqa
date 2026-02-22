@@ -7,36 +7,110 @@ name = "radiology-vqa"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
+    # ── Schema & config ──────────────────────────────────────────────────────
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
-    "datasets>=2.14",
+    "python-dotenv>=1.0",
+
+    # ── Image & DICOM ─────────────────────────────────────────────────────────
     "Pillow>=10.0",
     "pydicom>=2.4",
-    "numpy>=1.24",
-    "python-dotenv>=1.0",
-    "sentence-transformers>=2.2,<4.0",
+
+    # ── Datasets ─────────────────────────────────────────────────────────────
+    "datasets>=2.14",
+
+    # ── PyTorch ──────────────────────────────────────────────────────────────
+    # No upper bound: the code is compatible with torch 2.0+ (2.2.x on Mac,
+    # 2.7.x on Colab).  Pinning <2.3 downgraded Colab's GPU-optimised
+    # torch 2.7.1+cu118 to 2.2.2, which broke torchvision and torchaudio.
+    "torch>=2.0",
+
+    # numpy 2.0 changed the C-API; torch 2.0–2.3.x is compiled against
+    # numpy 1.x.  The upper-bound prevents silent wrong results on those
+    # versions.  Colab ships numpy 1.26.4 so this never triggers a downgrade.
+    "numpy>=1.24,<2.0",
+
+    # ── RAG pipeline ─────────────────────────────────────────────────────────
+    # sentence-transformers 5.x requires torch>=2.4.  Allow 5.x on Colab
+    # (torch 2.7) while still working on Mac (torch 2.2, installs 3.x).
+    "sentence-transformers>=2.2",
     "faiss-cpu>=1.7",
-    "torch>=2.0,<2.3",
-    "transformers>=4.40,<4.49",
-    "accelerate>=0.25",
-    "bitsandbytes>=0.41",
+
+    # ── VLM backends ─────────────────────────────────────────────────────────
+    # No upper bound on transformers.  The original <4.49 pin was motivated by
+    # two concerns that no longer apply:
+    #   1. CVE-2025-32434 (torch.load block for .bin checkpoints): all three
+    #      models used here (LLaVA-Med, BLIP-2, S-PubMedBert) ship safetensors
+    #      weights, so the CVE guard never fires.
+    #   2. transformers ≥4.45 renamed LlavaForConditionalGeneration weight
+    #      keys: llava_med.py detects and remaps these at load time.
+    # Pinning <4.49 was causing Colab to downgrade transformers 5.x → 4.48.x,
+    # which transitively downgraded huggingface_hub 1.4 → 0.36 (because
+    # transformers 4.48.x requires huggingface_hub<1.0).
+    "transformers>=4.37",
+
+    # Used directly in llava_med.py to read safetensors shards for weight
+    # key remapping (old-format LLaVA-Med checkpoint + newer transformers).
+    "safetensors>=0.4",
+
+    # Required by the Mistral-7B tokenizer used by LLaVA-Med v1.5.
+    # Without it, transformers falls back to the TikToken extractor which
+    # produces wrong tokenization and garbled model output.
+    "sentencepiece>=0.1.99",
+
+    # Required by transformers when converting a SentencePiece tokenizer
+    # (.model file) to the fast tokenizer format.  Without it, transformers
+    # silently falls back to TikToken which cannot parse binary .model files
+    # and raises: ValueError: Error parsing line b'\x0e' in tokenizer.model
+    # No upper bound: Colab ships protobuf 5.x and transformers supports it.
+    "protobuf>=3.20",
 ]
 
 [project.optional-dependencies]
+# ── GPU quantization (CUDA only) ─────────────────────────────────────────────
+# Install on any machine with an NVIDIA GPU: pip install -e ".[quant]"
+# Do NOT install on CPU-only machines: bitsandbytes will import but crash on
+# the first quantized forward pass.
+quant = [
+    # 4-bit / 8-bit weight quantization for LLaVA-Med and BLIP-2.
+    "bitsandbytes>=0.41",
+    # Required by transformers for device_map="auto" (multi-GPU dispatch) and
+    # for faster model loading via low_cpu_mem_usage.
+    "accelerate>=0.26",
+]
+
+# ── Development tools ────────────────────────────────────────────────────────
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "ruff>=0.1",
 ]
 
+# ── Convenience: everything ──────────────────────────────────────────────────
+all = [
+    "radiology-vqa[quant,dev]",
+]
+
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
 markers = [
-    "slow: marks tests that require dataset downloads",
+    "slow: marks tests requiring HuggingFace model downloads or a real embedding model",
+]
+filterwarnings = [
+    # FAISS SWIG deprecation warnings are emitted by FAISS internals and are harmless.
+    "ignore::DeprecationWarning:faiss",
 ]
 
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",  # line too long — handled by formatter
+]
