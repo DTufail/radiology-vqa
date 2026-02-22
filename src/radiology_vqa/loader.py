@@ -20,8 +20,12 @@ def load_vqa_rad(split: str = "train") -> list[VQASample]:
         logger.info("VQA-RAD %s: %d samples", split, len(dataset))
         samples = []
         for index, row in enumerate(dataset):
+            image = row["image"]
+            # Guard: VQA-RAD can contain grayscale frames; models expect RGB
+            if image.mode != "RGB":
+                image = image.convert("RGB")
             sample = VQASample(
-                image=row["image"],
+                image=image,
                 question=row["question"],
                 answer=str(row["answer"]),
                 answer_type=_infer_answer_type(str(row["answer"])),
@@ -33,7 +37,7 @@ def load_vqa_rad(split: str = "train") -> list[VQASample]:
         return samples
     except Exception as e:
         logger.error("Failed to load VQA-RAD %s: %s", split, e)
-        return []
+        raise
 
 
 def load_pathvqa(split: str = "train") -> list[VQASample]:
@@ -58,4 +62,4 @@ def load_pathvqa(split: str = "train") -> list[VQASample]:
         return samples
     except Exception as e:
         logger.error("Failed to load PathVQA %s: %s", split, e)
-        return []
+        raise

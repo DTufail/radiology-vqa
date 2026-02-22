@@ -49,7 +49,10 @@ class LLaVAMedBackend:
             self._device,
         )
         self._processor, self._model = self._load_model(model_id)
-        logger.info("LLaVA-Med loaded successfully.")
+        # Cache the resolved device once — avoids walking the parameter
+        # iterator on every predict() call.
+        self._inferred_device: torch.device = next(self._model.parameters()).device
+        logger.info("LLaVA-Med loaded on device=%s.", self._inferred_device)
 
     def _load_model(self, model_id: str):
         try:
@@ -111,13 +114,13 @@ class LLaVAMedBackend:
             image = image.convert("RGB")
 
         prompt = f"<image>\nUSER: {question}\nASSISTANT:"
-
         inputs = self._processor(text=prompt, images=image, return_tensors="pt")
-        device = next(self._model.parameters()).device
-        inputs = {k: v.to(device) for k, v in inputs.items()}
+        inputs = {k: v.to(self._inferred_device) for k, v in inputs.items()}
 
         start = time.perf_counter()
-        with torch.no_grad():
+        # torch.inference_mode is strictly more efficient than no_grad for
+        # pure inference: it additionally disables autograd version tracking.
+        with torch.inference_mode():
             output = self._model.generate(
                 **inputs,
                 max_new_tokens=self._max_new_tokens,
@@ -126,13 +129,12 @@ class LLaVAMedBackend:
             )
         latency = time.perf_counter() - start
 
-        # Decode only the generated tokens (strip the prompt)
         input_len = inputs["input_ids"].shape[1]
         generated_ids = output.sequences[0, input_len:]
         raw_output = self._processor.decode(generated_ids, skip_special_tokens=True)
         answer = raw_output.strip() or "unknown"
 
-        confidence = self._extract_confidence(output)
+        confidence = self._extract_confidence(output.scores, generated_ids)
 
         return VLMPrediction(
             answer=answer,
@@ -142,28 +144,43 @@ class LLaVAMedBackend:
             latency_seconds=latency,
         )
 
-    def _extract_confidence(self, output) -> float:
-        """Mean token probability from generation output scores."""
+    def _extract_confidence(
+        self, scores: tuple, generated_ids: torch.Tensor
+    ) -> float:
+        """Compute mean token probability over the generated sequence.
+
+        Replaces the original per-token Python loop with a single batched
+        tensor operation:
+          - stack scores:  (T, vocab_size)
+          - softmax once:  (T, vocab_size)
+          - gather token probs:  (T,)
+          - mean → scalar
+        Result: one GPU softmax + one gather instead of T sequential ops.
+        """
         try:
-            scores = output.scores  # tuple of (1, vocab_size) tensors
             if not scores:
                 return 0.5
 
-            generated_ids = output.sequences[0, -len(scores):]
-            probs = []
-            for i, score in enumerate(scores):
-                token_probs = torch.softmax(score, dim=-1)
-                token_id = generated_ids[i]
-                probs.append(token_probs[0, token_id].item())
-
-            return float(sum(probs) / len(probs)) if probs else 0.5
+            # scores: tuple of T tensors each (1, vocab_size)
+            scores_tensor = torch.stack(scores).squeeze(1)  # (T, vocab_size)
+            probs = torch.softmax(scores_tensor, dim=-1)     # (T, vocab_size)
+            token_probs = probs[
+                torch.arange(len(scores), device=probs.device),
+                generated_ids[: len(scores)],
+            ]  # (T,)
+            return token_probs.mean().item()
         except Exception:
             return 0.5
 
     def predict_batch(
         self, samples: list[tuple[Image.Image, str]]
     ) -> list[VLMPrediction]:
-        """Sequential batch inference (LLaVA-Med doesn't batch cleanly)."""
+        """Sequential batch inference.
+
+        LLaVA-Med processes variable-length multimodal sequences; padding
+        strategies for true batching are non-trivial and not yet implemented.
+        Sequential predict() calls are used with consistent latency tracking.
+        """
         return [self.predict(image, question) for image, question in samples]
 
     @property

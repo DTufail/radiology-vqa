@@ -50,7 +50,10 @@ class BLIP2Backend:
             self._device,
         )
         self._processor, self._model = self._load_model(model_id)
-        logger.info("BLIP-2 loaded successfully.")
+        # Cache the resolved device once — avoids walking the parameter
+        # iterator on every predict() call.
+        self._inferred_device: torch.device = next(self._model.parameters()).device
+        logger.info("BLIP-2 loaded on device=%s.", self._inferred_device)
 
     def _load_model(self, model_id: str):
         try:
@@ -97,43 +100,129 @@ class BLIP2Backend:
             ) from e
 
         model.eval()
+
+        if torch.cuda.is_available():
+            vram_gb = torch.cuda.memory_allocated() / 1024**3
+            logger.info("GPU memory after model load: %.2f GB", vram_gb)
+
         return processor, model
 
     def predict(self, image: Image.Image, question: str) -> VLMPrediction:
         """Run inference on a single image-question pair."""
         if image.mode != "RGB":
             image = image.convert("RGB")
+        return self._infer_batch([image], [f"Question: {question} Answer:"])[0]
 
-        prompt = f"Question: {question} Answer:"
+    def _infer_batch(
+        self, images: list[Image.Image], prompts: list[str]
+    ) -> list[VLMPrediction]:
+        """Core batched inference — shared by predict() and predict_batch().
 
-        inputs = self._processor(images=image, text=prompt, return_tensors="pt")
-        device = next(self._model.parameters()).device
-        inputs = {k: v.to(device) for k, v in inputs.items()}
+        Args:
+            images: RGB PIL images (already validated by callers).
+            prompts: Formatted prompt strings, one per image.
+
+        Returns:
+            One :class:`VLMPrediction` per input pair, with latency split
+            evenly across the batch.
+        """
+        inputs = self._processor(
+            images=images, text=prompts, return_tensors="pt", padding=True
+        )
+        inputs = {k: v.to(self._inferred_device) for k, v in inputs.items()}
+
+        input_len = inputs["input_ids"].shape[1]
 
         start = time.perf_counter()
-        with torch.no_grad():
-            output = self._model.generate(**inputs, max_new_tokens=self._max_new_tokens)
-        latency = time.perf_counter() - start
+        # torch.inference_mode is strictly more efficient than no_grad for
+        # pure inference: it additionally disables autograd version tracking.
+        with torch.inference_mode():
+            output = self._model.generate(
+                **inputs,
+                max_new_tokens=self._max_new_tokens,
+                output_scores=True,
+                return_dict_in_generate=True,
+            )
+        batch_latency = time.perf_counter() - start
+        per_sample_latency = batch_latency / len(images)
 
-        # Strip the input tokens to get only generated text
-        input_len = inputs.get("input_ids", torch.tensor([[]])).shape[1]
-        generated_ids = output[0, input_len:]
-        raw_output = self._processor.decode(generated_ids, skip_special_tokens=True).strip()
-        answer = raw_output.lower().strip() or "unknown"
+        results: list[VLMPrediction] = []
+        for idx in range(len(images)):
+            generated_ids = output.sequences[idx, input_len:]
+            raw_output = self._processor.decode(
+                generated_ids, skip_special_tokens=True
+            ).strip()
+            answer = raw_output.strip() or "unknown"
 
-        return VLMPrediction(
-            answer=answer,
-            confidence=0.5,  # BLIP-2 generate() doesn't expose usable logprobs
-            raw_output=raw_output,
-            model_name=self.model_name,
-            latency_seconds=latency,
-        )
+            confidence = self._extract_confidence(output.scores, generated_ids, idx)
+
+            results.append(
+                VLMPrediction(
+                    answer=answer,
+                    confidence=confidence,
+                    raw_output=raw_output,
+                    model_name=self.model_name,
+                    latency_seconds=per_sample_latency,
+                )
+            )
+
+        return results
+
+    def _extract_confidence(
+        self, scores: tuple, generated_ids: torch.Tensor, sample_idx: int = 0
+    ) -> float:
+        """Compute mean token probability for a single sample in a batch.
+
+        Uses a batched tensor operation:
+          - stack scores:  (T, batch_size, vocab_size)
+          - select sample: (T, vocab_size)
+          - softmax once:  (T, vocab_size)
+          - gather token probs: (T,)
+          - mean → scalar
+        """
+        try:
+            if not scores:
+                return 0.5
+
+            # scores: tuple of T tensors, each (batch_size, vocab_size)
+            scores_tensor = torch.stack(scores)          # (T, B, vocab)
+            sample_scores = scores_tensor[:, sample_idx, :]  # (T, vocab)
+            probs = torch.softmax(sample_scores, dim=-1)     # (T, vocab)
+            token_probs = probs[
+                torch.arange(len(scores), device=probs.device),
+                generated_ids[: len(scores)],
+            ]  # (T,)
+            return token_probs.mean().item()
+        except Exception:
+            return 0.5
 
     def predict_batch(
-        self, samples: list[tuple[Image.Image, str]]
+        self,
+        samples: list[tuple[Image.Image, str]],
+        batch_size: int = 8,
     ) -> list[VLMPrediction]:
-        """Sequential batch inference."""
-        return [self.predict(image, question) for image, question in samples]
+        """True batched inference, processed in chunks of batch_size.
+
+        Unlike LLaVA-Med, BLIP-2 handles fixed-size multimodal batches
+        natively via processor padding. Larger batch_size improves GPU
+        utilisation at the cost of peak VRAM.
+
+        Args:
+            samples: (image, question) pairs.
+            batch_size: Number of samples per forward pass.
+        """
+        results: list[VLMPrediction] = []
+        for start in range(0, len(samples), batch_size):
+            chunk = samples[start : start + batch_size]
+            images: list[Image.Image] = []
+            prompts: list[str] = []
+            for image, question in chunk:
+                if image.mode != "RGB":
+                    image = image.convert("RGB")
+                images.append(image)
+                prompts.append(f"Question: {question} Answer:")
+            results.extend(self._infer_batch(images, prompts))
+        return results
 
     @property
     def model_name(self) -> str:

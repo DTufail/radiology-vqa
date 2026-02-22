@@ -45,6 +45,7 @@ class BenchmarkRunner:
         dataset_name: str,
         split: str,
         max_samples: int | None = None,
+        batch_size: int = 1,
     ) -> BenchmarkResult:
         """Run VLM inference over samples and collect predictions.
 
@@ -54,6 +55,9 @@ class BenchmarkRunner:
             split: Split name (e.g. "test", "validate").
             max_samples: If set, evaluate only the first N samples.
                 Useful for quick sanity checks.
+            batch_size: Number of samples per forward pass. batch_size > 1
+                requires the backend to support true batching (e.g. BLIP-2).
+                LLaVA-Med should use batch_size=1 (sequential).
 
         Returns:
             :class:`BenchmarkResult` with per-sample records and aggregate metrics.
@@ -62,43 +66,52 @@ class BenchmarkRunner:
             samples = samples[:max_samples]
 
         logger.info(
-            "Starting benchmark: model=%s dataset=%s split=%s n=%d",
+            "Starting benchmark: model=%s dataset=%s split=%s n=%d batch_size=%d",
             self._vlm.model_name,
             dataset_name,
             split,
             len(samples),
+            batch_size,
         )
 
         per_sample: list[dict] = []
         total_latency = 0.0
 
-        for i, sample in enumerate(samples):
-            prediction = self._vlm.predict(sample.image, sample.question)
+        for chunk_start in range(0, len(samples), batch_size):
+            chunk = samples[chunk_start : chunk_start + batch_size]
 
-            correct = is_match(prediction.answer, sample.answer, sample.answer_type)
-            total_latency += prediction.latency_seconds
+            if batch_size == 1:
+                predictions = [self._vlm.predict(chunk[0].image, chunk[0].question)]
+            else:
+                predictions = self._vlm.predict_batch(
+                    [(s.image, s.question) for s in chunk]
+                )
 
-            per_sample.append(
-                {
-                    "sample_id": sample.sample_id,
-                    "question": sample.question,
-                    "ground_truth": sample.answer,
-                    "predicted_answer": normalize_answer(prediction.answer),
-                    "answer_type": sample.answer_type,
-                    "correct": correct,
-                    "confidence": prediction.confidence,
-                    "latency_seconds": prediction.latency_seconds,
-                }
-            )
+            for sample, prediction in zip(chunk, predictions):
+                correct = is_match(prediction.answer, sample.answer, sample.answer_type)
+                total_latency += prediction.latency_seconds
+                per_sample.append(
+                    {
+                        "sample_id": sample.sample_id,
+                        "question": sample.question,
+                        "ground_truth": sample.answer,
+                        "predicted_answer": normalize_answer(prediction.answer),
+                        "answer_type": sample.answer_type,
+                        "correct": correct,
+                        "confidence": prediction.confidence,
+                        "latency_seconds": prediction.latency_seconds,
+                    }
+                )
 
-            if (i + 1) % 50 == 0 or (i + 1) == len(samples):
-                acc_so_far = sum(s["correct"] for s in per_sample) / len(per_sample)
+            done = len(per_sample)
+            if done % 50 < batch_size or done == len(samples):
+                acc_so_far = sum(s["correct"] for s in per_sample) / done
                 logger.info(
                     "  [%d/%d] running accuracy=%.3f mean_latency=%.2fs",
-                    i + 1,
+                    done,
                     len(samples),
                     acc_so_far,
-                    total_latency / len(per_sample),
+                    total_latency / done,
                 )
 
         metrics = compute_metrics(per_sample)
@@ -130,7 +143,7 @@ class BenchmarkRunner:
             per_sample=per_sample,
             runtime=runtime,
             timestamp=datetime.now(timezone.utc).isoformat(),
-            config={"model_name": self._vlm.model_name},
+            config={"model_name": self._vlm.model_name, "batch_size": batch_size},
         )
 
     def save_result(self, result: BenchmarkResult, output_dir: Path) -> Path:

@@ -25,6 +25,13 @@ _ANSWER_TYPE_MAP: dict[str, str] = {
     "CLOSED": "closed",
 }
 
+# Module-level image cache: persists across load_slake() calls so train -> test
+# loads do not re-read shared images from disk.  Keyed by resolved absolute
+# path so different slake_dir values stay independent.
+# Images are shared by reference -- PIL read ops are safe; callers must not
+# mutate (resize/crop in-place) without first calling image.copy().
+_IMAGE_CACHE: dict[str, Image.Image] = {}
+
 
 def load_slake(slake_dir: Path, split: str = "train") -> list[SLAKESample]:
     split_file = _SPLIT_FILE_MAP.get(split)
@@ -33,36 +40,37 @@ def load_slake(slake_dir: Path, split: str = "train") -> list[SLAKESample]:
 
     json_path = slake_dir / split_file
     if not json_path.exists():
-        logger.error("SLAKE JSON not found: %s", json_path)
-        return []
+        raise FileNotFoundError(
+            f"SLAKE split file not found: {json_path}. "
+            "Ensure Slake1.0/ is placed at the configured slake_dir."
+        )
 
     try:
         with open(json_path, encoding="utf-8") as f:
             rows = json.load(f)
     except (json.JSONDecodeError, OSError) as e:
-        logger.error("Failed to parse SLAKE JSON %s: %s", json_path, e)
-        return []
+        raise RuntimeError(f"Failed to parse SLAKE JSON {json_path}: {e}") from e
 
     total_rows = len(rows)
     english_rows = [r for r in rows if r.get("q_lang") == "en"]
     logger.info("SLAKE %s: %d total rows, %d English", split, total_rows, len(english_rows))
 
-    image_cache: dict[str, Image.Image] = {}
     samples: list[SLAKESample] = []
 
     for row in english_rows:
         img_name = row.get("img_name", "")
         img_path = slake_dir / "imgs" / img_name
+        cache_key = str(img_path.resolve())
 
-        if img_name in image_cache:
-            image = image_cache[img_name]
+        if cache_key in _IMAGE_CACHE:
+            image = _IMAGE_CACHE[cache_key]
         else:
             if not img_path.exists():
                 logger.warning("SLAKE image not found, skipping: %s", img_path)
                 continue
             try:
                 image = Image.open(img_path).convert("RGB")
-                image_cache[img_name] = image
+                _IMAGE_CACHE[cache_key] = image
             except Exception as e:
                 logger.warning("Failed to load SLAKE image %s: %s, skipping", img_path, e)
                 continue
