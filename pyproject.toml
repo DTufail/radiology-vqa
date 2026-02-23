@@ -79,6 +79,8 @@ dependencies = [
     "nltk>=3.8",
     # scikit-learn: AUROC computation for confidence calibration analysis.
     "scikit-learn>=1.3",
+    # scipy: McNemar's test for statistical significance in comparator.
+    "scipy>=1.11",
 ]
 
 [project.optional-dependencies]

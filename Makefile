@@ -1,7 +1,8 @@
 .PHONY: install test test-slow lint format download-data validate-data \
         build-index build-index-kg test-retrieval \
         benchmark benchmark-quick benchmark-compare quick-inference \
-        run-agent run-agent-batch
+        run-agent run-agent-batch \
+        eval-quick eval-full eval-agent eval-vlm report
 
 install:
 	pip install -e ".[dev]"
@@ -50,3 +51,20 @@ run-agent:
 
 run-agent-batch:
 	python scripts/run_agent.py --dataset vqa_rad --range 0 10
+
+eval-quick:
+	python scripts/run_evaluation.py --mode compare --max-samples 20
+
+eval-full:
+	python scripts/run_evaluation.py --mode compare
+
+eval-agent:
+	python scripts/run_evaluation.py --mode agent
+
+eval-vlm:
+	python scripts/run_evaluation.py --mode vlm_only
+
+report:
+	python scripts/generate_report.py \
+		--agent data/evaluation_reports/agent_result.json \
+		--baseline data/evaluation_reports/baseline_result.json

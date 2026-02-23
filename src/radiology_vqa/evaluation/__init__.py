@@ -1,9 +1,13 @@
 """Phase 5: Evaluation metrics for medical VQA.
 
-Three modules:
+Five modules:
 - metrics: Standard VQA metrics (accuracy, token F1, BLEU, BERTScore)
 - agent_metrics: Multi-agent specific (abstention, grounding, citations)
 - calibration: Confidence analysis (ECE, AUROC, threshold analysis)
+- result: Pydantic data models (PerSampleResult, EvaluationResult, ComparisonResult)
+- evaluator: AgentEvaluator orchestrator
+- comparator: BaselineComparator with McNemar's test
+- report: generate_report → markdown + JSON deliverable
 """
 
 from radiology_vqa.evaluation.agent_metrics import (
@@ -21,6 +25,8 @@ from radiology_vqa.evaluation.calibration import (
     expected_calibration_error,
     threshold_analysis,
 )
+from radiology_vqa.evaluation.comparator import BaselineComparator
+from radiology_vqa.evaluation.evaluator import AgentEvaluator
 from radiology_vqa.evaluation.metrics import (
     batch_bleu_1,
     batch_token_f1,
@@ -32,6 +38,13 @@ from radiology_vqa.evaluation.metrics import (
     exact_match_accuracy,
     normalize_answer,
     token_f1,
+)
+
+from radiology_vqa.evaluation.report import generate_report
+from radiology_vqa.evaluation.result import (
+    ComparisonResult,
+    EvaluationResult,
+    PerSampleResult,
 )
 
 __all__ = [
@@ -59,4 +72,12 @@ __all__ = [
     "calibration_bins",
     "confidence_discrimination",
     "threshold_analysis",
+    # result models
+    "PerSampleResult",
+    "EvaluationResult",
+    "ComparisonResult",
+    # orchestration
+    "AgentEvaluator",
+    "BaselineComparator",
+    "generate_report",
 ]
