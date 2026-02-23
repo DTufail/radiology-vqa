@@ -70,6 +70,15 @@ dependencies = [
     # conditional routing and the re-query loop.  No upper bound: LangGraph 0.3+
     # maintains backwards-compatible StateGraph / compile() API.
     "langgraph>=0.2",
+
+    # ── Evaluation framework (Phase 5) ───────────────────────────────────────
+    # BERTScore: contextual embedding similarity for open-ended VQA evaluation.
+    # Uses microsoft/deberta-xlarge-mnli by default (highest human correlation).
+    "bert-score>=0.3.13",
+    # NLTK: unigram BLEU-1 scoring for short medical VQA answers.
+    "nltk>=3.8",
+    # scikit-learn: AUROC computation for confidence calibration analysis.
+    "scikit-learn>=1.3",
 ]
 
 [project.optional-dependencies]
