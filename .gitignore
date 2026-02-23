@@ -9,3 +9,8 @@ pycache/
 dist/
 build/
 .pytest_cache/
+
+# Large / generated files
+*.zip
+*_test_*.json
+.DS_Store

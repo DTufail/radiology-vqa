@@ -65,7 +65,10 @@ class BLIP2Backend:
             ) from e
 
         try:
-            processor = Blip2Processor.from_pretrained(model_id)
+            # use_fast=False avoids the "untagged enum ModelWrapper" error
+            # caused by tokenizers library incompatibility with the fast
+            # tokenizer file shipped with BLIP-2 OPT models.
+            processor = Blip2Processor.from_pretrained(model_id, use_fast=False)
         except Exception as e:
             raise RuntimeError(
                 f"Failed to download/load processor for '{model_id}'. "

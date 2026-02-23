@@ -64,6 +64,12 @@ dependencies = [
     # and raises: ValueError: Error parsing line b'\x0e' in tokenizer.model
     # No upper bound: Colab ships protobuf 5.x and transformers supports it.
     "protobuf>=3.20",
+
+    # ── Multi-agent graph framework ───────────────────────────────────────────
+    # Phase 4B: LangGraph wires the agent nodes into a compiled StateGraph with
+    # conditional routing and the re-query loop.  No upper bound: LangGraph 0.3+
+    # maintains backwards-compatible StateGraph / compile() API.
+    "langgraph>=0.2",
 ]
 
 [project.optional-dependencies]

@@ -30,6 +30,13 @@ class Settings(BaseSettings):
     vlm_device: str = "auto"  # "auto", "cuda", "cpu"
     vlm_concise_mode: bool = True  # True: 1-5 word answers + max_new_tokens=32; False: verbose
 
+    # Agent / Supervisor settings
+    supervisor_high_confidence: float = 0.85   # Case A/B threshold (above = high)
+    supervisor_low_confidence: float = 0.55    # Case C/D/E threshold (below = low)
+    supervisor_evidence_threshold: float = 0.4  # min retrieval score to count as supporting
+    supervisor_min_supporting_evidence: int = 1  # minimum supporting docs to count as grounded
+    supervisor_max_retries: int = 1             # max re_query attempts before abstain
+
     # Benchmark settings
     benchmark_output_dir: Path = Path("./data/benchmarks")
 

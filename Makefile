@@ -1,6 +1,7 @@
 .PHONY: install test test-slow lint format download-data validate-data \
         build-index build-index-kg test-retrieval \
-        benchmark benchmark-quick benchmark-compare quick-inference
+        benchmark benchmark-quick benchmark-compare quick-inference \
+        run-agent run-agent-batch
 
 install:
 	pip install -e ".[dev]"
@@ -43,3 +44,9 @@ benchmark-compare:
 
 quick-inference:
 	python scripts/quick_inference.py --dataset vqa_rad --index 0
+
+run-agent:
+	python scripts/run_agent.py --dataset vqa_rad --index 0
+
+run-agent-batch:
+	python scripts/run_agent.py --dataset vqa_rad --range 0 10

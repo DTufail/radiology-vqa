@@ -278,6 +278,145 @@ def sample_vqa_samples_for_benchmark():
     return samples
 
 
+# ---------------------------------------------------------------------------
+# Phase 4A agent node fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def base_state():
+    """Minimal valid input state with a synthetic gray image."""
+    return {
+        "image": Image.new("RGB", (224, 224), color="gray"),
+        "question": "Is there evidence of pneumonia?",
+        "answer_type": "closed",
+        "retry_count": 0,
+    }
+
+
+@pytest.fixture
+def mock_vlm():
+    """Mock VLMInterface returning a high-confidence prediction. Tracks last call."""
+    from radiology_vqa.vlm.interface import VLMPrediction
+
+    class MockVLM:
+        def __init__(self):
+            self.last_image = None
+            self.last_question = None
+
+        def predict(self, image, question):
+            self.last_image = image
+            self.last_question = question
+            return VLMPrediction(
+                answer="yes",
+                confidence=0.92,
+                raw_output="yes",
+                model_name="mock-vlm",
+                latency_seconds=0.01,
+            )
+
+        def predict_batch(self, samples):
+            return [self.predict(img, q) for img, q in samples]
+
+        @property
+        def model_name(self):
+            return "mock-vlm"
+
+    return MockVLM()
+
+
+@pytest.fixture
+def mock_retriever():
+    """Returns the MockRetriever CLASS (not an instance).
+
+    Usage in tests:
+        retriever = mock_retriever()                   # empty results
+        retriever = mock_retriever(results=[...])      # with results
+    """
+
+    class MockRetriever:
+        def __init__(self, results=None):
+            self._results = results or []
+
+        def retrieve(self, query, top_k=5, min_score=0.0):
+            return self._results
+
+        def retrieve_with_filter(self, query, top_k=5, source_type=None):
+            return self._results
+
+    return MockRetriever
+
+
+@pytest.fixture
+def sample_evidence():
+    """Sample evidence list in plain-dict format as stored in AgentState.
+
+    All three items relate to Lobar Pneumonia, so they support queries
+    that contain the keyword 'pneumonia'.
+    """
+    return [
+        {
+            "text": "Lobar Pneumonia symptoms include: chills, high fever, chest pain, cough, rusty sputum",
+            "score": 0.72,
+            "source_type": "kg_disease",
+            "entity_name": "Lobar Pneumonia",
+            "attribute": "symptom",
+            "rank": 1,
+        },
+        {
+            "text": "Lobar Pneumonia is caused by: infection due to streptococcus pneumoniae",
+            "score": 0.65,
+            "source_type": "kg_disease",
+            "entity_name": "Lobar Pneumonia",
+            "attribute": "cause",
+            "rank": 2,
+        },
+        {
+            "text": "Treatment for Lobar Pneumonia: antibiotic drug therapy",
+            "score": 0.58,
+            "source_type": "kg_disease",
+            "entity_name": "Lobar Pneumonia",
+            "attribute": "treatment",
+            "rank": 3,
+        },
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Phase 4B graph fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def lightweight_graph():
+    """Compiled LangGraph using build_lightweight() — no VLM or Retriever needed."""
+    from radiology_vqa.config import Settings
+    from radiology_vqa.graph.builder import GraphBuilder
+
+    builder = GraphBuilder(Settings())
+    return builder.build_lightweight()
+
+
+@pytest.fixture
+def pre_populated_state(base_state, sample_evidence):
+    """AgentState with visual agent and retrieval agent outputs already filled in.
+
+    Use this to test the supervisor → output_formatter flow through the
+    lightweight graph without needing a real VLM or FAISS index.
+    """
+    return {
+        **base_state,
+        "visual_answer": "yes",
+        "visual_confidence": 0.92,
+        "visual_raw_output": "yes",
+        "visual_model": "mock-vlm",
+        "visual_error": "",
+        "retrieval_query": "Is there evidence of pneumonia? yes",
+        "retrieved_evidence": sample_evidence,
+        "retrieval_error": "",
+    }
+
+
 @pytest.fixture
 def synthetic_dicom(tmp_path):
     import pydicom
