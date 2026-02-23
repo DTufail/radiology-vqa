@@ -197,6 +197,21 @@ def supervisor_node(state: AgentState) -> AgentState:
     return {**state, **updates}
 
 
+def _keyword_in_text(kw: str, text: str) -> bool:
+    """Return True if keyword (or its approximate singular) appears in text.
+
+    Also tries the stem without trailing 's' to handle plurals from questions
+    matching singular forms in the KG (e.g. "lungs" → "lung", "bones" → "bone").
+    Only strips 's' when the resulting stem is at least 4 characters, to avoid
+    mangling words like "anus" → "anu" or "bus" → "bu".
+    """
+    if kw in text:
+        return True
+    if kw.endswith("s") and len(kw) >= 5:
+        return kw[:-1] in text
+    return False
+
+
 def _compute_agreement(
     visual_answer: str,
     evidence: list[dict],
@@ -213,6 +228,9 @@ def _compute_agreement(
             appears (case-insensitive) in evidence text or entity_name.
         Closed (yes/no) questions: extract medical terms from the question instead
             (the visual_answer is "yes"/"no" which carries no medical content).
+
+    Plural normalisation: "lungs" also matches "lung", "bones" also matches "bone".
+    The SLAKE KG stores entity names in singular form; questions use plurals.
 
     Limitation: keyword matching misses semantic equivalents ("tumor" vs "neoplasm").
     Phase 6 can replace this with embedding cosine similarity.
@@ -250,7 +268,8 @@ def _compute_agreement(
             continue
         text_lower = item.get("text", "").lower()
         entity_lower = item.get("entity_name", "").lower()
-        if any(kw in text_lower or kw in entity_lower for kw in keywords):
+        if any(_keyword_in_text(kw, text_lower) or _keyword_in_text(kw, entity_lower)
+               for kw in keywords):
             supporting.append(item)
 
     # Normalise by total evidence count (not just above-threshold candidates)

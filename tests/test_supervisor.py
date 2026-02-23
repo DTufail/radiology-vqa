@@ -561,6 +561,30 @@ class TestClosedQuestionAgreement:
         result = supervisor_node(state)
         assert result["agreement_score"] > 0.0
 
+    def test_plural_keyword_matches_singular_in_evidence(self):
+        """'lungs' (plural in question) matches 'lung' (singular in KG evidence).
+        The SLAKE KG stores entities in singular form; questions use plurals.
+        Without this fix, 'lungs' would never match 'Pneumonia is located in the Lung'."""
+        lung_evidence = [
+            {
+                "text": "Pneumonia is located in the Lung.",
+                "score": 0.89,
+                "source_type": "kg_disease",
+                "entity_name": "Pneumonia",
+                "attribute": "location",
+                "rank": 1,
+            }
+        ]
+        state = _make_state(
+            0.89, lung_evidence,
+            visual_answer="yes", answer_type="closed",
+            question="Is there consolidation in the lungs?",
+        )
+        result = supervisor_node(state)
+        # 'lungs' → stem 'lung' matches 'Lung' in evidence → agreement > 0
+        assert result["agreement_score"] > 0.0
+        assert result["decision"] == "answer"
+
     def test_open_question_with_real_answer_still_uses_visual_answer(self):
         """Open questions with a genuine medical answer should use visual_answer tokens,
         not question keywords."""
