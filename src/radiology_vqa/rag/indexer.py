@@ -26,6 +26,7 @@ class FAISSIndexer:
 
         if not documents:
             logger.warning("No documents provided — building empty index.")
+            # CPU index — search over ~3K docs is <1ms; faiss-gpu unnecessary at this scale
             self._index = faiss.IndexFlatIP(self._embedder.dimension)
             self._documents = []
             return
@@ -43,6 +44,7 @@ class FAISSIndexer:
         )
 
         t1 = time.perf_counter()
+        # CPU index — search over ~3K docs is <1ms; faiss-gpu unnecessary at this scale
         self._index = faiss.IndexFlatIP(embeddings.shape[1])
         self._index.add(embeddings.astype(np.float32))
         t_index = time.perf_counter() - t1

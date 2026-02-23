@@ -29,9 +29,11 @@ class LLaVABackend:
         quantize: str = "4bit",
         device: str = "auto",
         max_new_tokens: int = 128,
+        concise_mode: bool = True,
     ) -> None:
         self._model_id = model_id
         self._max_new_tokens = max_new_tokens
+        self._concise_mode = concise_mode
 
         cuda_available = torch.cuda.is_available()
         if not cuda_available and quantize != "none":
@@ -83,14 +85,22 @@ class LLaVABackend:
                     kwargs["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True)
                 else:
                     kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
+                # device_map={"": 0} places everything on GPU 0 directly without
+                # going through accelerate's dispatch_model, which would call
+                # model.to(device) and crash on already-quantized bitsandbytes models.
+                kwargs["device_map"] = {"": 0}
+                kwargs["attn_implementation"] = "sdpa"
             except ImportError:
-                logger.warning("bitsandbytes not available; loading without quantization.")
+                logger.warning("bitsandbytes not available; loading in fp16.")
                 kwargs["torch_dtype"] = torch.float16
+                kwargs["device_map"] = self._device
+                kwargs["attn_implementation"] = "sdpa"
+        elif torch.cuda.is_available() and self._device != "cpu":
+            kwargs["torch_dtype"] = torch.float16
+            kwargs["device_map"] = self._device
+            kwargs["attn_implementation"] = "sdpa"
         else:
             kwargs["torch_dtype"] = torch.float32
-
-        if self._device != "cpu" and torch.cuda.is_available():
-            kwargs["device_map"] = self._device
 
         try:
             model = LlavaNextForConditionalGeneration.from_pretrained(model_id, **kwargs)
@@ -119,18 +129,32 @@ class LLaVABackend:
             image = image.convert("RGB")
 
         # LLaVA v1.6 Mistral-7B instruction format
-        prompt = f"[INST] <image>\n{question} [/INST]"
+        if self._concise_mode:
+            prompt = (
+                f"[INST] <image>\n{question}\n"
+                "Provide only the direct answer in 1-5 words. Do not explain. [/INST]"
+            )
+            max_new_tokens = 32
+        else:
+            prompt = f"[INST] <image>\n{question} [/INST]"
+            max_new_tokens = self._max_new_tokens
+
         inputs = self._processor(text=prompt, images=image, return_tensors="pt")
         inputs = {k: v.to(self._inferred_device) for k, v in inputs.items()}
 
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
         start = time.perf_counter()
         with torch.inference_mode():
             output = self._model.generate(
                 **inputs,
-                max_new_tokens=self._max_new_tokens,
+                max_new_tokens=max_new_tokens,
+                pad_token_id=self._processor.tokenizer.eos_token_id,
                 output_scores=True,
                 return_dict_in_generate=True,
             )
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
         latency = time.perf_counter() - start
 
         input_len = inputs["input_ids"].shape[1]

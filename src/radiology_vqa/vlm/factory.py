@@ -45,6 +45,7 @@ def create_vlm_backend(config: Settings) -> VLMInterface:
             quantize=config.vlm_quantize,
             device=config.vlm_device,
             max_new_tokens=config.vlm_max_new_tokens,
+            concise_mode=config.vlm_concise_mode,
         )
 
     if backend == "blip2":

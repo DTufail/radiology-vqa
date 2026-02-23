@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     vlm_quantize: str = "4bit"  # "4bit", "8bit", "none"
     vlm_max_new_tokens: int = 128
     vlm_device: str = "auto"  # "auto", "cuda", "cpu"
+    vlm_concise_mode: bool = True  # True: 1-5 word answers + max_new_tokens=32; False: verbose
 
     # Benchmark settings
     benchmark_output_dir: Path = Path("./data/benchmarks")

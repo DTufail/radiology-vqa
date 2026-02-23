@@ -81,14 +81,20 @@ class BLIP2Backend:
                     kwargs["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True)
                 else:
                     kwargs["quantization_config"] = BitsAndBytesConfig(load_in_8bit=True)
+                # device_map={"": 0} places everything on GPU 0 directly without
+                # going through accelerate's dispatch_model, which would call
+                # model.to(device) and crash on already-quantized bitsandbytes models.
+                kwargs["device_map"] = {"": 0}
+                kwargs["attn_implementation"] = "sdpa"
             except ImportError:
                 logger.warning("bitsandbytes not available; loading without quantization.")
                 kwargs["torch_dtype"] = torch.float32
         else:
             kwargs["torch_dtype"] = torch.float32
 
-        if self._device != "cpu" and torch.cuda.is_available():
+        if self._device != "cpu" and torch.cuda.is_available() and "device_map" not in kwargs:
             kwargs["device_map"] = self._device
+            kwargs["attn_implementation"] = "sdpa"
 
         try:
             model = Blip2ForConditionalGeneration.from_pretrained(model_id, **kwargs)
@@ -133,6 +139,8 @@ class BLIP2Backend:
 
         input_len = inputs["input_ids"].shape[1]
 
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
         start = time.perf_counter()
         # torch.inference_mode is strictly more efficient than no_grad for
         # pure inference: it additionally disables autograd version tracking.
@@ -143,6 +151,8 @@ class BLIP2Backend:
                 output_scores=True,
                 return_dict_in_generate=True,
             )
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
         batch_latency = time.perf_counter() - start
         per_sample_latency = batch_latency / len(images)
 

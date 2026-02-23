@@ -136,7 +136,7 @@ def main() -> None:
     parser.add_argument(
         "--backend",
         default=None,
-        choices=["llava_med", "blip2"],
+        choices=["llava", "llava_med", "blip2"],
         help="Override the VLM backend from config.",
     )
     parser.add_argument(

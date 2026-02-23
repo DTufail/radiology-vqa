@@ -76,7 +76,7 @@ quant = [
     "bitsandbytes>=0.41",
     # Required by transformers for device_map="auto" (multi-GPU dispatch) and
     # for faster model loading via low_cpu_mem_usage.
-    "accelerate>=0.26",
+    "accelerate>=0.30.0",
 ]
 
 # ── Development tools ────────────────────────────────────────────────────────

@@ -40,7 +40,7 @@ def main() -> None:
     parser.add_argument(
         "--backend",
         default=None,
-        choices=["llava_med", "blip2"],
+        choices=["llava", "llava_med", "blip2"],
         help="Override the VLM backend.",
     )
     args = parser.parse_args()
@@ -48,11 +48,6 @@ def main() -> None:
     # Override backend if requested
     if args.backend:
         settings.vlm_backend = args.backend
-        if (
-            args.backend == "blip2"
-            and settings.vlm_model_id == "microsoft/llava-med-v1.5-mistral-7b"
-        ):
-            settings.vlm_model_id = "Salesforce/blip2-opt-2.7b"
 
     # Resolve image and question
     if args.image:
