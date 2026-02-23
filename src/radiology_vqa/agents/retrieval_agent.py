@@ -35,9 +35,15 @@ def retrieval_agent_node(
     question = state.get("question", "")
     visual_answer = state.get("visual_answer", "")
     visual_error = state.get("visual_error", "")
+    retry_count = state.get("retry_count", 0)
 
-    # Build query: combine question with VLM's visual finding when available
-    if visual_answer and not visual_error:
+    # Build query.
+    # First attempt (retry_count == 0): combine question with VLM answer for a focused query.
+    # Re-query (retry_count > 0): use question only — different embedding vector, different
+    #     retrieval ranking. Avoids the first-attempt query returning identical results.
+    if retry_count > 0:
+        query = question
+    elif visual_answer and not visual_error:
         query = f"{question} {visual_answer}"
     else:
         query = question

@@ -354,6 +354,26 @@ class TestEdgeCases:
         assert result["decision"] == "re_query"
         assert result["agreement_score"] == 0.0
 
+    def test_agreement_closed_all_stopwords_fallback(self):
+        """question='is this the one?' — after stopword removal: 'one' kept (len>2).
+        Doesn't appear in evidence → agreement = 0.0. No crash."""
+        evidence = [
+            {
+                "text": "Some medical condition affects the organ.",
+                "score": 0.80,
+                "source_type": "kg_disease",
+                "entity_name": "Condition",
+                "attribute": "description",
+                "rank": 1,
+            }
+        ]
+        state = _make_state(
+            0.89, evidence, visual_answer="yes", answer_type="closed",
+            question="Is this the one?",
+        )
+        result = supervisor_node(state)
+        assert 0.0 <= result["agreement_score"] <= 1.0
+
     def test_confidence_exactly_at_high_boundary_hits_case_a_or_b_not_c_or_d(self):
         # HIGH_CONFIDENCE = 0.85. The condition is visual_confidence >= high_conf,
         # so 0.85 exactly satisfies it and falls into Case A/B (not Case C/D).
@@ -386,3 +406,180 @@ class TestEdgeCases:
         assert result_without["decision"] == "re_query", (
             "confidence=0.85 with no evidence should be Case B (re_query), not Case D"
         )
+
+
+# ── Closed question agreement (Strategy B) ────────────────────────────────────
+
+_CONSOLIDATION_EVIDENCE = [
+    {
+        "text": "Consolidation is an abnormal filling of lung air spaces with fluid or inflammatory cells.",
+        "score": 0.87,
+        "source_type": "kg_disease",
+        "entity_name": "Consolidation",
+        "attribute": "description",
+        "rank": 1,
+    }
+]
+
+_KIDNEY_EVIDENCE = [
+    {
+        "text": "Kidney stone causes severe pain in the lower back and urinary tract.",
+        "score": 0.87,
+        "source_type": "kg_disease",
+        "entity_name": "Kidney Stone",
+        "attribute": "symptom",
+        "rank": 1,
+    }
+]
+
+_FRACTURE_EVIDENCE = [
+    {
+        "text": "A temporal bone fracture involves a break in the bony skull base.",
+        "score": 0.88,
+        "source_type": "kg_disease",
+        "entity_name": "Temporal Bone Fracture",
+        "attribute": "description",
+        "rank": 1,
+    }
+]
+
+
+class TestClosedQuestionAgreement:
+    """Verify Strategy B (question-keyword) agreement for closed/yes-no questions."""
+
+    def test_closed_agreement_extracts_consolidation_from_question(self):
+        """question='Is there consolidation in the lungs?', visual_answer='Yes'
+        → extracts 'consolidation', 'lungs' → matches evidence → agreement > 0."""
+        state = _make_state(
+            0.89, _CONSOLIDATION_EVIDENCE,
+            visual_answer="Yes", answer_type="closed",
+            question="Is there consolidation in the lungs?",
+        )
+        result = supervisor_node(state)
+        assert result["agreement_score"] > 0.0
+        # High confidence + evidence → Case A → answer
+        assert result["decision"] == "answer"
+
+    def test_closed_agreement_ignores_yes_token_in_visual_answer(self):
+        """Agreement must NOT depend on 'yes' appearing in evidence.
+        Uses liver evidence that contains no 'yes'/'no' — match must come from
+        question keyword 'liver'."""
+        liver_evidence = [
+            {
+                "text": "Liver: metabolize nutrients, filter blood, produce bile.",
+                "score": 0.88,
+                "source_type": "kg_organ",
+                "entity_name": "Liver",
+                "attribute": "function",
+                "rank": 1,
+            }
+        ]
+        state = _make_state(
+            0.89, liver_evidence,
+            visual_answer="Yes", answer_type="closed",
+            question="Is the liver visible?",
+        )
+        result = supervisor_node(state)
+        # 'liver' from question matches entity_name → agreement > 0
+        assert result["agreement_score"] > 0.0
+
+    def test_closed_agreement_multiple_medical_terms(self):
+        """question='Are the temporal bones fractured?'
+        Extracts: 'temporal', 'bones', 'fractured'.
+        Evidence contains 'fracture' → 'fractured' substring matches via 'in' check."""
+        state = _make_state(
+            0.89, _FRACTURE_EVIDENCE,
+            visual_answer="yes", answer_type="closed",
+            question="Are the temporal bones fractured?",
+        )
+        result = supervisor_node(state)
+        assert result["agreement_score"] > 0.0
+
+    def test_closed_agreement_zero_when_no_medical_term_overlap(self):
+        """question='Is there consolidation visible?' but evidence only about kidney stones.
+        No keyword overlap → agreement = 0.0."""
+        state = _make_state(
+            0.89, _KIDNEY_EVIDENCE,
+            visual_answer="yes", answer_type="closed",
+            question="Is there consolidation visible?",
+        )
+        result = supervisor_node(state)
+        assert result["agreement_score"] == 0.0
+
+    def test_closed_agreement_domain_stopwords_removed(self):
+        """question='Is the image showing any evidence of pneumonia?'
+        Domain stopwords 'image', 'evidence' are removed.
+        'pneumonia' stays → matches evidence → agreement > 0."""
+        pneumonia_evidence = [
+            {
+                "text": "Pneumonia causes inflammation of the lung parenchyma.",
+                "score": 0.88,
+                "source_type": "kg_disease",
+                "entity_name": "Pneumonia",
+                "attribute": "description",
+                "rank": 1,
+            }
+        ]
+        state = _make_state(
+            0.89, pneumonia_evidence,
+            visual_answer="yes", answer_type="closed",
+            question="Is the image showing any evidence of pneumonia?",
+        )
+        result = supervisor_node(state)
+        assert result["agreement_score"] > 0.0
+
+    def test_visual_answer_yes_triggers_strategy_b_even_with_open_answer_type(self):
+        """Dual-signal detection: visual_answer='yes' with answer_type='open'
+        should still trigger question-keyword strategy (Strategy B)."""
+        fracture_evidence = [
+            {
+                "text": "Fracture is a break in the continuity of bone structure.",
+                "score": 0.88,
+                "source_type": "kg_disease",
+                "entity_name": "Fracture",
+                "attribute": "description",
+                "rank": 1,
+            }
+        ]
+        # answer_type='open' but visual_answer='yes' → should use question keywords
+        state = _make_state(
+            0.89, fracture_evidence,
+            visual_answer="yes", answer_type="open",
+            question="Is there a fracture in this X-ray?",
+        )
+        result = supervisor_node(state)
+        # 'fracture' from question matches evidence → agreement > 0
+        assert result["agreement_score"] > 0.0
+
+    def test_visual_answer_no_triggers_strategy_b(self):
+        """visual_answer='no' also triggers Strategy B — should use question keywords."""
+        state = _make_state(
+            0.89, _CONSOLIDATION_EVIDENCE,
+            visual_answer="no", answer_type="closed",
+            question="Is there consolidation in the lungs?",
+        )
+        result = supervisor_node(state)
+        assert result["agreement_score"] > 0.0
+
+    def test_open_question_with_real_answer_still_uses_visual_answer(self):
+        """Open questions with a genuine medical answer should use visual_answer tokens,
+        not question keywords."""
+        liver_evidence = [
+            {
+                "text": "Liver function: metabolize nutrients, detoxify blood.",
+                "score": 0.88,
+                "source_type": "kg_organ",
+                "entity_name": "Liver",
+                "attribute": "function",
+                "rank": 1,
+            }
+        ]
+        # visual_answer='liver' with answer_type='open' → Strategy A
+        state = _make_state(
+            0.89, liver_evidence,
+            visual_answer="liver", answer_type="open",
+            question="What organ is visible in this image?",
+        )
+        result = supervisor_node(state)
+        # 'liver' from visual_answer matches evidence → agreement > 0
+        assert result["agreement_score"] > 0.0

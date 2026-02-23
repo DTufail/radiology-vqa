@@ -159,3 +159,66 @@ class TestRetrievalAgentNode:
         retrieval_agent_node(state, mock_retriever())
 
         assert set(state.keys()) == original_keys
+
+
+# ── Re-query behavior ─────────────────────────────────────────────────────────
+
+
+class TestReQueryBehavior:
+    """Verify that retry_count>0 produces a different (question-only) query."""
+
+    def test_first_attempt_includes_visual_answer(self, mock_retriever):
+        """retry_count=0 → query includes visual_answer (existing behavior)."""
+        state = {
+            "question": "Is there consolidation in the lungs?",
+            "visual_answer": "Yes",
+            "visual_error": "",
+            "retry_count": 0,
+        }
+        result = retrieval_agent_node(state, mock_retriever())
+        assert "Yes" in result["retrieval_query"]
+        assert "Is there consolidation in the lungs?" in result["retrieval_query"]
+
+    def test_requery_uses_question_only(self, mock_retriever):
+        """retry_count=1 → query is question string alone, no visual_answer."""
+        state = {
+            "question": "Is there consolidation in the lungs?",
+            "visual_answer": "Yes",
+            "visual_error": "",
+            "retry_count": 1,
+        }
+        result = retrieval_agent_node(state, mock_retriever())
+        assert result["retrieval_query"] == "Is there consolidation in the lungs?"
+
+    def test_requery_different_from_first_query(self, mock_retriever):
+        """The re-query string is strictly different from the first-attempt string."""
+        question = "Is there consolidation in the lungs?"
+        visual_answer = "Yes"
+
+        state_first = {
+            "question": question,
+            "visual_answer": visual_answer,
+            "visual_error": "",
+            "retry_count": 0,
+        }
+        state_retry = {
+            "question": question,
+            "visual_answer": visual_answer,
+            "visual_error": "",
+            "retry_count": 1,
+        }
+        result_first = retrieval_agent_node(state_first, mock_retriever())
+        result_retry = retrieval_agent_node(state_retry, mock_retriever())
+
+        assert result_first["retrieval_query"] != result_retry["retrieval_query"]
+
+    def test_requery_with_visual_error_uses_question(self, mock_retriever):
+        """retry_count=1 + visual_error → query = question (both paths give question-only)."""
+        state = {
+            "question": "Is there consolidation?",
+            "visual_answer": "",
+            "visual_error": "GPU OOM",
+            "retry_count": 1,
+        }
+        result = retrieval_agent_node(state, mock_retriever())
+        assert result["retrieval_query"] == "Is there consolidation?"

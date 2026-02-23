@@ -26,15 +26,20 @@ LOW_CONFIDENCE: float = 0.55
 EVIDENCE_SUPPORT_THRESHOLD: float = 0.4
 MIN_SUPPORTING_EVIDENCE: int = 1
 
-# Function words to skip when extracting medical terms from questions/answers
+# Function words to skip when extracting medical terms from questions/answers.
+# Includes domain-specific radiology question words that carry no medical entity signal.
 _STOP_WORDS: frozenset[str] = frozenset({
-    "is", "are", "was", "were", "be", "been",
+    "is", "are", "was", "were", "be", "been", "being",
     "the", "a", "an", "in", "on", "at", "to", "for",
-    "of", "and", "or", "but", "with", "by", "from",
+    "of", "and", "or", "but", "with", "by", "from", "than",
     "there", "this", "that", "these", "those",
-    "what", "which", "who", "how", "when", "where",
+    "what", "which", "who", "how", "when", "where", "why",
     "does", "do", "did", "has", "have", "had",
-    "not", "any", "some", "its",
+    "can", "will", "should", "would", "could",
+    "not", "any", "some", "its", "more", "most",
+    # Radiology question boilerplate — not medical entities
+    "image", "visible", "present", "shown", "evidence",
+    "side", "type", "view", "taken",
 })
 
 
@@ -215,12 +220,24 @@ def _compute_agreement(
     if not evidence:
         return 0.0, []
 
-    # Build keyword set
-    if answer_type == "closed":
-        # yes/no answers have no medical content — extract terms from the question
+    # Build keyword set.
+    # Use Strategy B (question keywords) when EITHER signal indicates a closed question:
+    # (a) answer_type is explicitly "closed", OR
+    # (b) the VLM returned "yes"/"no" regardless of the recorded answer_type.
+    # "yes"/"no" carry no medical content so matching them against KG text is useless.
+    va_norm = visual_answer.strip().lower()
+    use_question_keywords = (answer_type == "closed") or (va_norm in ("yes", "no"))
+
+    if use_question_keywords:
+        # Strategy B: extract medical terms from the question
         words = re.findall(r"[a-z]+", question.lower())
         keywords = {w for w in words if len(w) > 2 and w not in _STOP_WORDS}
+        if not keywords:
+            # Fallback: question had only stopwords — try visual_answer tokens
+            words = re.findall(r"[a-z]+", visual_answer.lower())
+            keywords = {w for w in words if len(w) > 2}
     else:
+        # Strategy A: extract tokens from the VLM's answer (open-ended)
         words = re.findall(r"[a-z]+", visual_answer.lower())
         keywords = {w for w in words if len(w) > 2}
 
