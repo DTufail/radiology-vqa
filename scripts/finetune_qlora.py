@@ -191,7 +191,14 @@ def load_datasets(cfg: dict):
 
 # ── trainer ───────────────────────────────────────────────────────────────────
 
-def build_trainer(cfg: dict, model: Any, processor: Any, train_ds: Any, val_ds: Any):
+def build_trainer(
+    cfg: dict,
+    model: Any,
+    processor: Any,
+    train_ds: Any,
+    val_ds: Any,
+    max_steps: int = -1,
+):
     """Construct SFTTrainer with our LlavaDataCollator."""
     from transformers import TrainingArguments
     from trl import SFTTrainer
@@ -205,6 +212,7 @@ def build_trainer(cfg: dict, model: Any, processor: Any, train_ds: Any, val_ds: 
     training_args = TrainingArguments(
         output_dir=t["output_dir"],
         num_train_epochs=t["num_epochs"],
+        max_steps=max_steps,                      # -1 = ignored; >0 overrides num_epochs
         per_device_train_batch_size=t["per_device_train_batch_size"],
         gradient_accumulation_steps=t["gradient_accumulation_steps"],
         learning_rate=t["learning_rate"],
@@ -356,6 +364,16 @@ def main() -> None:
         action="store_true",
         help="Load model and verify shapes, then exit without training.",
     )
+    parser.add_argument(
+        "--max-steps",
+        type=int,
+        default=-1,
+        help=(
+            "Stop after N gradient steps (smoke-test mode). "
+            "Disables PathVQA loading, eval, and checkpointing. "
+            "-1 = run full training (default)."
+        ),
+    )
     args = parser.parse_args()
 
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -404,6 +422,15 @@ def main() -> None:
         run_dry_run(cfg)
         return  # sys.exit(0) already called inside, but be explicit
 
+    # ── Smoke-test overrides (--max-steps N) ──────────────────────────────
+    smoke_test = args.max_steps > 0
+    if smoke_test:
+        logger.info("*** SMOKE TEST: max_steps=%d (no PathVQA, no eval, no save) ***", args.max_steps)
+        cfg["data"]["include_pathvqa"] = False   # skip HF download
+        cfg["training"]["eval_strategy"] = "no"
+        cfg["training"]["save_strategy"] = "no"
+        cfg["training"]["load_best_model_at_end"] = False
+
     # ── 5. Model loading + LoRA wrapping ──────────────────────────────────
     logger.info("--- Loading model and applying LoRA ---")
     model, processor = setup_model_and_processor(cfg)
@@ -422,7 +449,7 @@ def main() -> None:
         total_steps,
     )
 
-    trainer = build_trainer(cfg, model, processor, train_ds, val_ds)
+    trainer = build_trainer(cfg, model, processor, train_ds, val_ds, max_steps=args.max_steps)
 
     # ── 7. Training estimate + checkpoint path ────────────────────────────
     output_dir = cfg["training"]["output_dir"]
@@ -445,7 +472,10 @@ def main() -> None:
         logger.info("Total steps      : %d", train_result.global_step)
 
         # M3 fix: evaluate after training to capture eval_loss in the record.
-        # trainer.evaluate() returns a dict with key "eval_loss".
+        # Skip in smoke-test mode (no full epoch, eval_strategy="no").
+        if smoke_test:
+            logger.info("Smoke test complete — skipping eval.")
+            return
         eval_result = trainer.evaluate()
         eval_loss = eval_result.get("eval_loss")
         if eval_loss is not None:
