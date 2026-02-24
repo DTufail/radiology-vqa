@@ -49,7 +49,7 @@ data:
   include_vqa_rad: true
   include_slake: true
   include_pathvqa: true
-  max_length: 2048                  # LLaVA-Next uses ~1176 image tokens; 2048 covers image + text
+  max_length: 4096                  # LLaVA-Next: max 4 tiles × 576 + 1 base × 576 = 2880 image tokens + text
   seed: 42
 
 experiment:

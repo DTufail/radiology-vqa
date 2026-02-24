@@ -94,12 +94,17 @@ def setup_model_and_processor(cfg: dict) -> tuple[Any, Any]:
 
     model_id = cfg["model"]["id"]
     logger.info("Loading processor: %s", model_id)
-    processor = LlavaNextProcessor.from_pretrained(model_id)
+    processor = LlavaNextProcessor.from_pretrained(model_id, use_fast=True)
 
-    # Ensure pad token is set (required by collator)
-    if processor.tokenizer.pad_token is None:
-        processor.tokenizer.pad_token = processor.tokenizer.eos_token
-        logger.info("Set pad_token = eos_token")
+    # Ensure pad token is set and distinct from EOS.
+    # Using pad_token = eos_token causes the label-masking step to also mask
+    # the real EOS at the end of the answer, so the model never learns to stop.
+    # LLaVA-Next Mistral already defines <pad> (id 32001) in its tokenizer;
+    # we just need to make sure it is active.
+    if processor.tokenizer.pad_token_id is None or processor.tokenizer.pad_token_id == processor.tokenizer.eos_token_id:
+        processor.tokenizer.add_special_tokens({"pad_token": "<pad>"})
+        logger.info("Set pad_token = <pad> (id %d), distinct from eos_token (id %d)",
+                    processor.tokenizer.pad_token_id, processor.tokenizer.eos_token_id)
 
     logger.info(
         "Loading model in 4-bit NF4 (double_quant=%s, compute_dtype=%s)",
@@ -122,7 +127,7 @@ def setup_model_and_processor(cfg: dict) -> tuple[Any, Any]:
         model_id,
         quantization_config=bnb_config,
         device_map="auto",
-        torch_dtype=compute_dtype,
+        dtype=compute_dtype,
     )
 
     if torch.cuda.is_available():
@@ -144,6 +149,24 @@ def setup_model_and_processor(cfg: dict) -> tuple[Any, Any]:
     )
     model = get_peft_model(model, lora_config)
     logger.info("LoRA adapters applied.")
+
+    # Fix: upcast ALL non-quantised bf16 parameters to fp32.
+    # prepare_model_for_kbit_training can leave non-quantised layers
+    # (e.g. LayerNorm, lm_head, multimodal_projector) in bf16 — the
+    # model's native HF dtype.  Even frozen bf16 layers produce bf16
+    # gradients that flow to downstream trainable params.  The fp16 AMP
+    # GradScaler cannot unscale bf16 gradients, causing
+    # NotImplementedError on Volta (T4) GPUs that lack bf16 support.
+    # We must cast ALL bf16 params (trainable AND frozen non-quantised)
+    # so that the entire backward pass stays in fp32/fp16.
+    n_cast = 0
+    for param in model.parameters():
+        if param.dtype == torch.bfloat16:
+            param.data = param.data.to(torch.float32)
+            n_cast += 1
+    if n_cast:
+        logger.info("Upcast %d bf16 params → fp32 (GradScaler compat)", n_cast)
+
     return model, processor
 
 
@@ -332,9 +355,18 @@ def run_dry_run(cfg: dict) -> None:
         list(batch["labels"].shape),
     )
 
-    # Verify labels mask: at least some -100 positions (padding mask applied)
+    # Verify labels mask: prompt + padding masked, answer tokens kept
     n_masked = (batch["labels"] == -100).sum().item()
-    logger.info("Labels masked positions (padding -100): %d", n_masked)
+    n_total = batch["labels"].numel()
+    n_answer = n_total - n_masked
+    logger.info(
+        "Labels: %d total, %d masked (-100), %d answer tokens kept (%.1f%%)",
+        n_total, n_masked, n_answer, 100.0 * n_answer / n_total if n_total else 0,
+    )
+    # Verify EOS is present in answer tokens (not masked)
+    eos_id = processor.tokenizer.eos_token_id
+    eos_in_labels = (batch["labels"] == eos_id).sum().item()
+    logger.info("EOS tokens in labels (should be >0): %d", eos_in_labels)
 
     logger.info(
         "Trainable params: %s / %s (%.4f%%)",

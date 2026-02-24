@@ -1,8 +1,10 @@
 """Tests for Phase 6A training dataset preparation."""
 
 import pytest
+import torch
 from PIL import Image
 
+from radiology_vqa.training.collator import _find_answer_start, _to_multimodal_format
 from radiology_vqa.training.dataset import (
     TrainingConfig,
     build_conversation,
@@ -212,3 +214,83 @@ class TestBuildTrainingDatasetIntegration:
         for i in range(min(50, len(train_ds))):
             answer = train_ds[i]["conversations"][1]["content"]
             assert answer == answer.lower(), f"Non-lowercase answer at {i}: {answer!r}"
+
+
+# ── collator unit tests ──────────────────────────────────────────────────────
+
+
+class TestToMultimodalFormat:
+    """Tests for _to_multimodal_format conversion."""
+
+    def test_converts_user_string_to_typed_blocks(self):
+        conv = [{"role": "user", "content": "<image>\nWhat is this?"}]
+        result = _to_multimodal_format(conv)
+        assert result[0]["role"] == "user"
+        content = result[0]["content"]
+        assert isinstance(content, list)
+        assert content[0] == {"type": "image"}
+        assert content[1]["type"] == "text"
+        assert "What is this?" in content[1]["text"]
+
+    def test_strips_image_token_from_text(self):
+        conv = [{"role": "user", "content": "<image>\nDescribe this image"}]
+        result = _to_multimodal_format(conv)
+        text_block = result[0]["content"][1]
+        assert "<image>" not in text_block["text"]
+
+    def test_converts_assistant_string(self):
+        conv = [{"role": "assistant", "content": "yes"}]
+        result = _to_multimodal_format(conv)
+        content = result[0]["content"]
+        assert isinstance(content, list)
+        assert content[0] == {"type": "text", "text": "yes"}
+
+    def test_passes_through_already_formatted(self):
+        conv = [
+            {"role": "user", "content": [{"type": "image"}, {"type": "text", "text": "Q?"}]},
+        ]
+        result = _to_multimodal_format(conv)
+        assert result[0]["content"] == conv[0]["content"]
+
+    def test_full_conversation(self):
+        conv = build_conversation("Is there a fracture?", "yes")
+        result = _to_multimodal_format(conv)
+        assert len(result) == 2
+        assert result[0]["role"] == "user"
+        assert result[1]["role"] == "assistant"
+
+
+class TestFindAnswerStart:
+    """Tests for _find_answer_start token boundary detection."""
+
+    def test_finds_marker_at_end(self):
+        # Simulate: [prompt tokens..., INST_END_1, INST_END_2, answer tokens...]
+        marker = [733, 28793]  # example [/INST] token IDs
+        ids = torch.tensor([1, 100, 200, 733, 28793, 500, 600])
+        pos = _find_answer_start(ids, marker)
+        assert pos == 5  # right after the marker
+
+    def test_finds_last_marker_in_multiturn(self):
+        marker = [733, 28793]
+        # Two [/INST] markers — should find the LAST one
+        ids = torch.tensor([1, 733, 28793, 50, 60, 733, 28793, 500])
+        pos = _find_answer_start(ids, marker)
+        assert pos == 7  # after the second [/INST]
+
+    def test_returns_zero_if_not_found(self):
+        marker = [733, 28793]
+        ids = torch.tensor([1, 100, 200, 300])
+        pos = _find_answer_start(ids, marker)
+        assert pos == 0
+
+    def test_marker_at_very_start(self):
+        marker = [733, 28793]
+        ids = torch.tensor([733, 28793, 500, 600])
+        pos = _find_answer_start(ids, marker)
+        assert pos == 2
+
+    def test_single_token_marker(self):
+        marker = [999]
+        ids = torch.tensor([1, 2, 999, 3, 4])
+        pos = _find_answer_start(ids, marker)
+        assert pos == 3
