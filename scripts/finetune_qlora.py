@@ -150,22 +150,31 @@ def setup_model_and_processor(cfg: dict) -> tuple[Any, Any]:
     model = get_peft_model(model, lora_config)
     logger.info("LoRA adapters applied.")
 
-    # Fix: upcast ALL non-quantised bf16 parameters to fp32.
+    # Fix: upcast ALL non-quantised bf16 tensors (params AND buffers) to fp32.
     # prepare_model_for_kbit_training can leave non-quantised layers
     # (e.g. LayerNorm, lm_head, multimodal_projector) in bf16 — the
     # model's native HF dtype.  Even frozen bf16 layers produce bf16
     # gradients that flow to downstream trainable params.  The fp16 AMP
     # GradScaler cannot unscale bf16 gradients, causing
     # NotImplementedError on Volta (T4) GPUs that lack bf16 support.
-    # We must cast ALL bf16 params (trainable AND frozen non-quantised)
-    # so that the entire backward pass stays in fp32/fp16.
+    # We must cast ALL bf16 tensors (parameters AND buffers like inv_freq,
+    # position embeddings) so that the entire backward pass stays in fp32/fp16.
     n_cast = 0
     for param in model.parameters():
         if param.dtype == torch.bfloat16:
             param.data = param.data.to(torch.float32)
             n_cast += 1
+
+    # Also upcast buffers (non-learnable tensors like rotary embeddings)
+    for module in model.modules():
+        for attr_name in list(module._buffers.keys()):
+            buf = module._buffers[attr_name]
+            if buf is not None and buf.dtype == torch.bfloat16:
+                module._buffers[attr_name] = buf.to(torch.float32)
+                n_cast += 1
+
     if n_cast:
-        logger.info("Upcast %d bf16 params → fp32 (GradScaler compat)", n_cast)
+        logger.info("Upcast %d bf16 tensors → fp32 (GradScaler compat)", n_cast)
 
     return model, processor
 
