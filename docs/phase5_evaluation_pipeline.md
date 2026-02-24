@@ -378,9 +378,61 @@ python scripts/generate_report.py \
 | `tests/test_report.py` | generate_report | File creation, sections, threshold recommendation |
 | **Phase 5A total** | **114 fast tests** | All pass |
 | **Phase 5B total** | **50 fast tests** | All pass |
-| **Cumulative (all phases)** | **385 fast tests** | All pass |
+| **Phase 5 critical fixes** | **14 fast tests** | All pass |
+| **Cumulative (all phases)** | **399 fast tests** | All pass |
 
 All Phase 5 tests are fast (no GPU, no model downloads). BERTScore is mocked in tests that compute it.
+
+---
+
+## 20-Sample Pilot Results (Post-Fix)
+
+Evaluated on 20 samples from the VQA-RAD test split after applying the Phase 5 critical fixes (agreement scoring + re-query).
+
+### Decision Breakdown
+
+| Decision | Before Fix | After Fix |
+|----------|-----------|-----------|
+| Answer | 11 (55%) | 13 (65%) |
+| Abstain | 9 (45%) | 7 (35%) |
+
+The plural normalisation fix (`"lungs"→"lung"`, `"kidneys"→"kidney"`) unblocked agreement scoring for 2 samples that were previously routing to Case B → abstain.
+
+### Accuracy
+
+| Metric | Before Fix | After Fix |
+|--------|-----------|-----------|
+| Overall accuracy (of 20) | 4/20 = 20.0% | 4/20 = 20.0% |
+| Accuracy-when-answered | 4/11 = 36.4% | 4/13 = 30.8% |
+
+Overall accuracy did not improve. Both recovered samples (test_5, test_15) were cases where the VLM answered "Yes" confidently but the ground truth was "No". The agreement function confirmed the evidence was topically relevant (it is about the right anatomy), but it cannot distinguish yes from no.
+
+### Remaining 7 Abstentions (KG Coverage Gaps)
+
+| Sample | Question | VLM Answer | Why Agreement = 0 |
+|--------|----------|------------|-------------------|
+| test_1 | Airspace consolidation on left side? | Yes | "airspace" and "consolidation" not in KG |
+| test_4 | Where are the kidney? | In body | "body" not useful; KG has no location-answer entity |
+| test_6 | Colon most prominent right or left? | Left | Open-ended: "Left" not in KG text |
+| test_7 | Colon most prominent from view? | Top | Low VLM confidence (0.507 < 0.55) → Case E, correct abstain |
+| test_8 | Heart size smaller or larger? | Smaller | Comparative question; "smaller" not in KG |
+| test_11 | What structures are visible? | Teeth | Dental anatomy not in SLAKE KG |
+| test_16 | What type of image is this? | X-ray | Imaging modality not in KG |
+
+These are genuine KG coverage gaps and are not fixable by improving agreement scoring logic alone.
+
+### The Fundamental Limitation Revealed
+
+The pilot exposed a deeper architectural constraint: **agreement scoring checks topical relevance, not binary answer correctness.**
+
+When the VLM is confidently wrong on a yes/no question — for example, predicting "Yes" to "is there aortic aneurysm?" when the ground truth is "No" — the supervisor routes to Case A (answer) if the KG returns documents about "aortic aneurysm". The documents are topically relevant, so agreement > 0. But the VLM's binary answer is wrong, and the agreement function has no way to detect this because it only checks whether the question's medical terms appear in evidence, not whether the evidence supports "yes" vs "no".
+
+This affects 6 of the 13 answered samples in the pilot: the VLM was high-confidence and wrong, evidence was topically relevant, so the agent returned a confident wrong answer.
+
+The only remedies are:
+1. **Semantic agreement** (Phase 6): replace keyword matching with embedding similarity between the VLM answer and each evidence passage, which may catch cases where evidence contradicts the VLM
+2. **VLM calibration**: a better-calibrated VLM would have lower confidence on cases it gets wrong, pushing them to Case D/E
+3. **KG expansion**: adding image-specific facts (not just entity descriptions) so the retriever finds evidence that directly addresses the binary question
 
 ---
 
@@ -391,7 +443,7 @@ All Phase 5 tests are fast (no GPU, no model downloads). BERTScore is mocked in 
 cd ~/radiology-vqa && git pull
 pip install -e ".[dev]"
 
-# 2. Verify fast tests (should show 385 passed, ~15 sec)
+# 2. Verify fast tests (should show 399 passed, ~15 sec)
 pytest tests/ -m "not slow" -q
 
 # 3. Quick sanity check — 20 samples, ~4 minutes on T4
@@ -415,8 +467,10 @@ Progress is printed to stdout every 25 samples (`{done}/{n} | {correct} correct 
 
 | Issue | Impact | Plan |
 |-------|--------|------|
+| Agreement checks topic, not binary answer | High-confidence wrong yes/no answers pass agreement (evidence is topically relevant even when VLM is wrong) — 6/13 answered samples in pilot were confidently wrong | Phase 6: semantic agreement using evidence-vs-answer embeddings |
+| KG coverage gaps: modality, anatomy, spatial | 6 of 7 remaining abstentions are questions the KG cannot answer (imaging type, dental anatomy, comparative size, positional/spatial) | KG expansion with radiology-specific text corpus |
+| Keyword matching misses synonyms | "opacity" won't match "consolidation"; "neoplasm" won't match "tumor" | Phase 6: embedding cosine similarity |
 | McNemar's test requires discordant pairs | Needs ≥ 5 discordant pairs for meaningful p-value; small pilots return p=1.0 | Run ≥ 100 samples for significance testing |
 | BERTScore loads a separate transformer model | ~1.5 GB additional GPU memory; OOM on T4 if VLM still loaded | Use `--no-bertscore` or free VLM before scoring |
-| Citation relevance is keyword-based | Misses semantic matches; phrases like "pulmonary edema" won't match "fluid in lungs" | Phase 6: embedding-based citation relevance |
 | `retry_count` not surfaced in `SystemOutput` | `re_query_rate` always 0 in current `_run_agent()` | Expose `retry_count` from `AgentState` in a follow-up |
 | `generate_report.py` computes comparison from file | Requires both agent + baseline JSON; comparison is optional | Pass `--agent` only to get agent-only report |

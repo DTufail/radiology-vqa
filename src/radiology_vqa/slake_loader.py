@@ -86,10 +86,18 @@ def load_slake(slake_dir: Path, split: str = "train") -> list[SLAKESample]:
         else:
             triple = []
 
+        question = row.get("question", "")
+        answer = str(row.get("answer", ""))
+
+        # Skip samples with empty/whitespace-only answers (e.g. qid 1622)
+        if not answer.strip():
+            logger.warning("SLAKE %s: skipping qid=%s — empty answer", split, row.get("qid", "?"))
+            continue
+
         sample = SLAKESample(
             image=image,
-            question=row.get("question", ""),
-            answer=str(row.get("answer", "")),
+            question=question,
+            answer=answer,
             answer_type=answer_type,
             modality=modality,
             source="slake",
@@ -100,6 +108,21 @@ def load_slake(slake_dir: Path, split: str = "train") -> list[SLAKESample]:
             img_name=img_name,
         )
         samples.append(sample)
+
+    # Deduplicate exact (img_name, question, answer) triples — keeps first occurrence
+    seen: set[tuple[str, str, str]] = set()
+    deduped: list[SLAKESample] = []
+    for s in samples:
+        key = (s.img_name, s.question.strip().lower(), s.answer.strip().lower())
+        if key not in seen:
+            seen.add(key)
+            deduped.append(s)
+    if len(deduped) < len(samples):
+        logger.info(
+            "SLAKE %s: removed %d duplicate triples (%d → %d)",
+            split, len(samples) - len(deduped), len(samples), len(deduped),
+        )
+        samples = deduped
 
     unique_images = len({s.img_name for s in samples})
     logger.info("SLAKE %s: %d samples, %d unique images", split, len(samples), unique_images)

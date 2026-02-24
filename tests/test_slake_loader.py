@@ -68,3 +68,54 @@ def test_slake_sample_fields_populated(tmp_slake_dir):
     assert first.content_type == "abnormality"
     assert first.img_name == "xmlab_test/source.jpg"
     assert first.source == "slake"
+
+
+def test_slake_empty_answer_skipped(tmp_slake_dir):
+    """Samples with empty / whitespace-only answers must be dropped."""
+    train_path = tmp_slake_dir / "train.json"
+    with open(train_path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    data.append(
+        {
+            "qid": 1622,
+            "img_name": "xmlab_test/source.jpg",
+            "question": "Does the picture contain liver?",
+            "answer": "",
+            "answer_type": "OPEN",
+            "q_lang": "en",
+            "modality": "CT",
+            "location": "Abdomen",
+            "content_type": "Organ",
+            "triple": [],
+        }
+    )
+    with open(train_path, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+    from radiology_vqa.slake_loader import load_slake
+
+    samples = load_slake(tmp_slake_dir, "train")
+    # 3 valid English rows; empty-answer row skipped
+    assert len(samples) == 3
+    assert all(s.answer.strip() for s in samples)
+
+
+def test_slake_duplicate_triples_removed(tmp_slake_dir):
+    """Exact (img_name, question, answer) duplicates are deduplicated."""
+    train_path = tmp_slake_dir / "train.json"
+    with open(train_path, encoding="utf-8") as f:
+        data = json.load(f)
+
+    # Add an exact duplicate of qid=1
+    dup = dict(data[0])
+    dup["qid"] = 100
+    data.append(dup)
+    with open(train_path, "w", encoding="utf-8") as f:
+        json.dump(data, f)
+
+    from radiology_vqa.slake_loader import load_slake
+
+    samples = load_slake(tmp_slake_dir, "train")
+    # Still only 3 unique English samples (duplicate removed)
+    assert len(samples) == 3
