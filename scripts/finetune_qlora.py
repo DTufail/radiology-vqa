@@ -90,11 +90,20 @@ def setup_model_and_processor(cfg: dict) -> tuple[Any, Any]:
         (model, processor) — model is a PeftModel ready for training.
     """
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
-    from transformers import BitsAndBytesConfig, LlavaNextForConditionalGeneration, LlavaNextProcessor
+    from transformers import (
+        AutoTokenizer,
+        BitsAndBytesConfig,
+        LlavaNextForConditionalGeneration,
+        LlavaNextImageProcessor,
+        LlavaNextProcessor,
+    )
 
     model_id = cfg["model"]["id"]
     logger.info("Loading processor: %s", model_id)
-    processor = LlavaNextProcessor.from_pretrained(model_id, use_fast=True)
+    # Load components separately to ensure use_fast=True for both tokenizer and image processor
+    tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=True)
+    image_processor = LlavaNextImageProcessor.from_pretrained(model_id, use_fast=True)
+    processor = LlavaNextProcessor(image_processor=image_processor, tokenizer=tokenizer)
 
     # Ensure pad token is set and distinct from EOS.
     # Using pad_token = eos_token causes the label-masking step to also mask
