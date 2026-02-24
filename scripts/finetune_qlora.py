@@ -249,14 +249,50 @@ def build_trainer(
     val_ds: Any,
     max_steps: int = -1,
 ):
-    """Construct SFTTrainer with our LlavaDataCollator."""
-    from transformers import TrainingArguments
-    from trl import SFTTrainer
+    """Construct Trainer with our LlavaDataCollator.
+
+    Uses plain Trainer (not SFTTrainer) because:
+    - SFTTrainer tries to tokenize/preprocess the dataset during __init__,
+      causing a ~10-minute delay that is entirely wasted since our custom
+      LlavaDataCollator already handles tokenization at collation time.
+    - SFTTrainer internally re-creates a processor that triggers the
+      "slow image processor" deprecation warning.
+    - We don't need SFT-specific features (packing, formatting) for
+      multimodal training with a custom collator.
+    """
+    from transformers import Trainer, TrainingArguments
 
     from radiology_vqa.training.collator import LlavaDataCollator
 
     collator = LlavaDataCollator(processor, max_length=cfg["data"]["max_length"])
     t = cfg["training"]
+
+    # Disable fp16 mixed precision.  The Mistral model is natively stored in
+    # bf16.  Even after upcasting all parameters/buffers to fp32, the
+    # bitsandbytes 4-bit forward pass and the CLIP vision encoder can still
+    # produce bf16 intermediate tensors whose gradients are also bf16.
+    # The fp16 GradScaler cannot unscale bf16 gradients, causing
+    # NotImplementedError on T4 (Volta) GPUs.
+    #
+    # Setting fp16=False disables the GradScaler entirely.  Memory efficiency
+    # is preserved because:
+    #   - The model is 4-bit quantized (~4 GB)
+    #   - bnb_4bit_compute_dtype=fp16 keeps matmul in fp16 inside BnB layers
+    #   - Only LoRA adapters (~170 MB) train in fp32
+    fp16 = False
+    if t.get("fp16", False):
+        logger.info(
+            "Overriding fp16=True → False (bf16 model + fp16 GradScaler conflict on T4)"
+        )
+
+    # Force num_workers=0: the collator holds a processor with a chat template
+    # that can be lost when DataLoader pickles it into worker processes.
+    num_workers = 0
+    if t.get("dataloader_num_workers", 0) > 0:
+        logger.info(
+            "Overriding dataloader_num_workers=%d → 0 (processor pickle safety)",
+            t["dataloader_num_workers"],
+        )
 
     os.makedirs(t["output_dir"], exist_ok=True)
     training_args = TrainingArguments(
@@ -271,8 +307,8 @@ def build_trainer(
         max_grad_norm=t["max_grad_norm"],
         optim=t["optim"],
         gradient_checkpointing=t["gradient_checkpointing"],
-        fp16=t["fp16"],
-        dataloader_num_workers=t["dataloader_num_workers"],
+        fp16=fp16,
+        dataloader_num_workers=num_workers,
         remove_unused_columns=t["remove_unused_columns"],
         save_strategy=t["save_strategy"],
         save_total_limit=t["save_total_limit"],
@@ -285,13 +321,13 @@ def build_trainer(
         seed=t["seed"],
     )
 
-    trainer = SFTTrainer(
+    trainer = Trainer(
         model=model,
         args=training_args,
         train_dataset=train_ds,
         eval_dataset=val_ds,
         data_collator=collator,
-        # No dataset_text_field — multimodal samples go through collator directly
+        processing_class=processor.tokenizer,
     )
     return trainer
 
