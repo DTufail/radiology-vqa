@@ -1,0 +1,19 @@
+# Phase 6 configuration — use AFTER QLoRA fine-tuning is complete.
+#
+# To activate the fine-tuned adapter, set VLM_ADAPTER_PATH in your environment
+# or .env file. The LLaVABackend will merge the LoRA weights at load time
+# (merge_and_unload), giving full inference speed with no LoRA overhead.
+#
+# Usage:
+#   export VLM_ADAPTER_PATH=checkpoints/llava-med-qlora/best
+#   python scripts/quick_inference.py --dataset vqa_rad --index 0
+#   python scripts/run_evaluation.py --mode agent --max-samples 451
+
+vlm:
+  backend: "llava"
+  model_id: "llava-hf/llava-v1.6-mistral-7b-hf"
+  quantize: "4bit"
+  max_new_tokens: 128
+  device: "auto"
+  concise_mode: true
+  adapter_path: "checkpoints/llava-med-qlora/best"   # set after training completes

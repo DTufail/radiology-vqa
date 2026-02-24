@@ -1,7 +1,9 @@
 """LLaVA v1.6 Mistral-7B inference backend."""
 
 import logging
+import os
 import time
+from typing import Optional
 
 import torch
 from PIL import Image
@@ -30,6 +32,7 @@ class LLaVABackend:
         device: str = "auto",
         max_new_tokens: int = 128,
         concise_mode: bool = True,
+        adapter_path: Optional[str] = None,
     ) -> None:
         self._model_id = model_id
         self._max_new_tokens = max_new_tokens
@@ -55,6 +58,28 @@ class LLaVABackend:
             self._device,
         )
         self._processor, self._model = self._load_model(model_id)
+
+        # Load fine-tuned LoRA adapter if provided (inference only, weights merged)
+        if adapter_path:
+            if os.path.isdir(adapter_path):
+                try:
+                    from peft import PeftModel
+                    logger.info("Loading LoRA adapter from %s", adapter_path)
+                    self._model = PeftModel.from_pretrained(
+                        self._model,
+                        adapter_path,
+                        is_trainable=False,
+                    )
+                    self._model = self._model.merge_and_unload()
+                    logger.info("LoRA adapter merged. Running fine-tuned model.")
+                except ImportError:
+                    logger.warning("peft not installed; skipping adapter load.")
+            else:
+                logger.warning(
+                    "adapter_path %r not found. Falling back to zero-shot LLaVA v1.6.",
+                    adapter_path,
+                )
+
         self._inferred_device: torch.device = next(self._model.parameters()).device
         logger.info("LLaVA v1.6 loaded on device=%s.", self._inferred_device)
 

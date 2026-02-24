@@ -44,9 +44,18 @@ def build_conversation(question: str, answer: str) -> list[dict]:
 
     Returns list of message dicts matching LLaVA chat template format.
     The <image> token tells the model where the image embedding goes.
+
+    The instruction suffix matches the concise_mode inference prompt in
+    llava.py LLaVABackend.predict() so training and inference formats align.
     """
     return [
-        {"role": "user", "content": f"<image>\n{question}"},
+        {
+            "role": "user",
+            "content": (
+                f"<image>\n{question}\n"
+                "Provide only the direct answer in 1-5 words. Do not explain."
+            ),
+        },
         {"role": "assistant", "content": answer},
     ]
 
@@ -154,13 +163,26 @@ def build_training_dataset(
             len(val_samples),
         )
 
-    # --- PathVQA train ---
-    if config.include_pathvqa:
-        before = len(train_samples)
+    logger.info("Total non-PathVQA training samples: %d", len(train_samples))
+    logger.info("Total validation samples: %d", len(val_samples))
+
+    # Build the VQA-RAD + SLAKE portion as a Dataset (small — fits in RAM).
+    vqa_slake_ds = Dataset.from_list(train_samples)
+    val_ds = Dataset.from_list(val_samples)
+
+    if not config.include_pathvqa:
+        return vqa_slake_ds, val_ds
+
+    # --- PathVQA train (generator-based to avoid 19k PIL images in heap) ---
+    # Dataset.from_list() requires all samples in memory before Arrow serialisation.
+    # For PathVQA (19,654 images × ~450 KB avg ≈ 8.8 GB) this would OOM on
+    # ml.g4dn.2xlarge (32 GB RAM) once combined with model weights during training.
+    # Dataset.from_generator() streams rows into Arrow one at a time.
+    pathvqa_count = 0
+
+    def _pathvqa_generator():
+        nonlocal pathvqa_count
         try:
-            # Load directly from HuggingFace datasets (memory-mapped, no full RAM load).
-            # This avoids creating 19k+ VQASample Pydantic objects and their PIL images
-            # in memory simultaneously, which could OOM on ml.g4dn.xlarge (16 GB RAM).
             from datasets import load_dataset as hf_load_dataset
 
             ds = hf_load_dataset("flaviagiammarino/path-vqa", split="train")
@@ -177,28 +199,30 @@ def build_training_dataset(
                     continue
                 if len(answer.split()) > config.max_answer_length:
                     answer = " ".join(answer.split()[: config.max_answer_length])
-                train_samples.append(
-                    {
-                        "image": img,
-                        "conversations": build_conversation(row["question"], answer),
-                        "source": "pathvqa",
-                        "sample_id": f"pathvqa_train_{i}",
-                    }
-                )
+                pathvqa_count += 1
                 if i % 5000 == 0 and i > 0:
                     logger.debug("PathVQA: processed %d samples so far", i)
+                yield {
+                    "image": img,
+                    "conversations": build_conversation(row["question"], answer),
+                    "source": "pathvqa",
+                    "sample_id": f"pathvqa_train_{i}",
+                }
         except Exception as e:
             logger.error("Failed to load PathVQA train: %s", e)
             raise
-        logger.info(
-            "PathVQA train: %d added to training set",
-            len(train_samples) - before,
-        )
 
-    logger.info("Total training samples: %d", len(train_samples))
-    logger.info("Total validation samples: %d", len(val_samples))
+    try:
+        from datasets import concatenate_datasets
 
-    train_ds = Dataset.from_list(train_samples)
-    val_ds = Dataset.from_list(val_samples)
+        pathvqa_ds = Dataset.from_generator(_pathvqa_generator)
+        logger.info("PathVQA train: %d added to training set", pathvqa_count)
+
+        train_ds = concatenate_datasets([vqa_slake_ds, pathvqa_ds])
+    except Exception as e:
+        logger.error("PathVQA generator failed: %s", e)
+        raise
+
+    logger.info("Total training samples: %d", len(train_ds))
 
     return train_ds, val_ds

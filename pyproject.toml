@@ -96,6 +96,19 @@ quant = [
     "accelerate>=0.30.0",
 ]
 
+# ── QLoRA fine-tuning (CUDA only) ────────────────────────────────────────────
+# Install on SageMaker before running finetune_qlora.py:
+#   pip install -e ".[train]"
+# Requires quant extras (bitsandbytes, accelerate) to also be installed.
+train = [
+    # LoRA / QLoRA adapter layers and PEFT utilities.
+    "peft>=0.9.0",
+    # SFTTrainer for supervised fine-tuning with HuggingFace Datasets.
+    "trl>=0.8.0",
+    # YAML config loading for finetune_qlora.py.
+    "pyyaml>=6.0",
+]
+
 # ── Development tools ────────────────────────────────────────────────────────
 dev = [
     "pytest>=7.0",

@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     vlm_max_new_tokens: int = 128
     vlm_device: str = "auto"  # "auto", "cuda", "cpu"
     vlm_concise_mode: bool = True  # True: 1-5 word answers + max_new_tokens=32; False: verbose
+    vlm_adapter_path: str = ""  # Path to LoRA adapter dir; empty = zero-shot (no adapter)
 
     # Agent / Supervisor settings
     supervisor_high_confidence: float = 0.85   # Case A/B threshold (above = high)

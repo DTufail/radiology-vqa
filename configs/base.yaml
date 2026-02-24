@@ -1,0 +1,30 @@
+# Base configuration reference for radiology-vqa.
+#
+# These settings mirror the pydantic Settings fields in src/radiology_vqa/config.py.
+# Override any field by setting the corresponding environment variable (uppercase)
+# or by adding it to a .env file in the project root.
+#
+# Example: export VLM_ADAPTER_PATH=checkpoints/llava-med-qlora/best
+
+vlm:
+  backend: "llava"                              # "llava" | "blip2"
+  model_id: "llava-hf/llava-v1.6-mistral-7b-hf"
+  quantize: "4bit"                              # "4bit" | "8bit" | "none"
+  max_new_tokens: 128
+  device: "auto"
+  concise_mode: true
+  adapter_path: null                            # null = zero-shot (no fine-tuned adapter)
+
+data:
+  slake_dir: "./data/raw/Slake1.0"
+  index_dir: "./data/indices"
+
+rag:
+  embedding_model: "pritamdeka/S-PubMedBert-MS-MARCO"
+  retrieval_top_k: 5
+  retrieval_min_score: 0.3
+
+agent:
+  supervisor_high_confidence: 0.85
+  supervisor_low_confidence: 0.55
+  supervisor_max_retries: 1
