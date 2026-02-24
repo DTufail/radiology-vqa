@@ -91,19 +91,28 @@ def setup_model_and_processor(cfg: dict) -> tuple[Any, Any]:
     """
     from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
     from transformers import (
-        AutoTokenizer,
         BitsAndBytesConfig,
         LlavaNextForConditionalGeneration,
-        LlavaNextImageProcessor,
         LlavaNextProcessor,
     )
 
     model_id = cfg["model"]["id"]
     logger.info("Loading processor: %s", model_id)
-    # Load components separately to ensure use_fast=True for both tokenizer and image processor
-    tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=True)
-    image_processor = LlavaNextImageProcessor.from_pretrained(model_id, use_fast=True)
-    processor = LlavaNextProcessor(image_processor=image_processor, tokenizer=tokenizer)
+
+    # MUST use from_pretrained() — it loads the Mistral chat template from
+    # tokenizer_config.json.  Manual construction via LlavaNextProcessor(...)
+    # skips this and causes "processor does not have a chat template" at
+    # collation time.
+    processor = LlavaNextProcessor.from_pretrained(model_id, use_fast=True)
+
+    # Swap in the fast image processor to silence the deprecation warning.
+    # LlavaNextImageProcessorFast is available in transformers >= 4.46.
+    try:
+        from transformers import LlavaNextImageProcessorFast
+        processor.image_processor = LlavaNextImageProcessorFast.from_pretrained(model_id)
+        logger.info("Using fast image processor (LlavaNextImageProcessorFast)")
+    except (ImportError, Exception) as e:
+        logger.info("Fast image processor unavailable, using slow (%s)", e)
 
     # Ensure pad token is set and distinct from EOS.
     # Using pad_token = eos_token causes the label-masking step to also mask
