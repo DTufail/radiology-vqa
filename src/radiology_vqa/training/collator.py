@@ -8,6 +8,35 @@ import torch
 logger = logging.getLogger(__name__)
 
 
+def _to_multimodal_format(conversations: list[dict]) -> list[dict]:
+    """Convert string-content conversation to LLaVA multimodal list-of-dicts format.
+
+    Transformers >=4.45 requires content as typed blocks for LLaVA-Next:
+        [{"type": "image"}, {"type": "text", "text": "..."}]
+
+    build_conversation() stores content as a plain string (kept for test
+    compatibility).  This function upgrades it at collation time without
+    modifying the stored sample.
+    """
+    result = []
+    for msg in conversations:
+        content = msg["content"]
+        if not isinstance(content, str):
+            result.append(msg)  # already in list-of-dicts format
+            continue
+        if msg["role"] == "user":
+            # Strip the <image> token; the image block is added explicitly.
+            text = content.replace("<image>\n", "", 1).replace("<image>", "", 1)
+            new_content: list[dict] = [
+                {"type": "image"},
+                {"type": "text", "text": text},
+            ]
+        else:
+            new_content = [{"type": "text", "text": content}]
+        result.append({"role": msg["role"], "content": new_content})
+    return result
+
+
 class LlavaDataCollator:
     """Collate multimodal samples into batches for LLaVA training.
 
@@ -19,7 +48,7 @@ class LlavaDataCollator:
         max_length:  Maximum token length per sample (default 256).
     """
 
-    def __init__(self, processor: Any, max_length: int = 256) -> None:
+    def __init__(self, processor: Any, max_length: int = 2048) -> None:
         self.processor = processor
         self.max_length = max_length
 
@@ -29,7 +58,7 @@ class LlavaDataCollator:
 
         for example in examples:
             text = self.processor.apply_chat_template(
-                example["conversations"],
+                _to_multimodal_format(example["conversations"]),
                 tokenize=False,
                 add_generation_prompt=False,
             )

@@ -49,7 +49,7 @@ data:
   include_vqa_rad: true
   include_slake: true
   include_pathvqa: true
-  max_length: 256                   # tokens per sample — covers all medical QA pairs
+  max_length: 2048                  # LLaVA-Next uses ~1176 image tokens; 2048 covers image + text
   seed: 42
 
 experiment:
