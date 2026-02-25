@@ -146,11 +146,14 @@ def setup_model_and_processor(cfg: dict) -> tuple[Any, Any]:
         quantization_config=bnb_config,
         device_map="auto",
         dtype=compute_dtype,
+        attn_implementation=cfg["model"].get("attn_implementation", None),
     )
 
     if torch.cuda.is_available():
         vram_gb = torch.cuda.memory_allocated() / 1024**3
         logger.info("VRAM after model load: %.2f GB", vram_gb)
+        if cfg["model"].get("attn_implementation"):
+            logger.info("Attention implementation: %s", cfg["model"]["attn_implementation"])
 
     model = prepare_model_for_kbit_training(
         model,
@@ -169,30 +172,29 @@ def setup_model_and_processor(cfg: dict) -> tuple[Any, Any]:
     logger.info("LoRA adapters applied.")
 
     # Fix: upcast ALL non-quantised bf16 tensors (params AND buffers) to fp32.
-    # prepare_model_for_kbit_training can leave non-quantised layers
-    # (e.g. LayerNorm, lm_head, multimodal_projector) in bf16 — the
-    # model's native HF dtype.  Even frozen bf16 layers produce bf16
-    # gradients that flow to downstream trainable params.  The fp16 AMP
-    # GradScaler cannot unscale bf16 gradients, causing
-    # NotImplementedError on Volta (T4) GPUs that lack bf16 support.
-    # We must cast ALL bf16 tensors (parameters AND buffers like inv_freq,
-    # position embeddings) so that the entire backward pass stays in fp32/fp16.
-    n_cast = 0
-    for param in model.parameters():
-        if param.dtype == torch.bfloat16:
-            param.data = param.data.to(torch.float32)
-            n_cast += 1
-
-    # Also upcast buffers (non-learnable tensors like rotary embeddings)
-    for module in model.modules():
-        for attr_name in list(module._buffers.keys()):
-            buf = module._buffers[attr_name]
-            if buf is not None and buf.dtype == torch.bfloat16:
-                module._buffers[attr_name] = buf.to(torch.float32)
+    # Only needed when NOT using bf16 training (i.e., fp16 or fp32 mode).
+    # When bf16 training is enabled (Ampere+ GPUs), bf16 tensors are fine —
+    # there's no GradScaler conflict.
+    use_bf16 = cfg["training"].get("bf16", False)
+    if not use_bf16:
+        n_cast = 0
+        for param in model.parameters():
+            if param.dtype == torch.bfloat16:
+                param.data = param.data.to(torch.float32)
                 n_cast += 1
 
-    if n_cast:
-        logger.info("Upcast %d bf16 tensors → fp32 (GradScaler compat)", n_cast)
+        # Also upcast buffers (non-learnable tensors like rotary embeddings)
+        for module in model.modules():
+            for attr_name in list(module._buffers.keys()):
+                buf = module._buffers[attr_name]
+                if buf is not None and buf.dtype == torch.bfloat16:
+                    module._buffers[attr_name] = buf.to(torch.float32)
+                    n_cast += 1
+
+        if n_cast:
+            logger.info("Upcast %d bf16 tensors → fp32 (GradScaler compat)", n_cast)
+    else:
+        logger.info("bf16 training enabled — skipping bf16→fp32 upcast")
 
     return model, processor
 
@@ -267,32 +269,37 @@ def build_trainer(
     collator = LlavaDataCollator(processor, max_length=cfg["data"]["max_length"])
     t = cfg["training"]
 
-    # Disable fp16 mixed precision.  The Mistral model is natively stored in
-    # bf16.  Even after upcasting all parameters/buffers to fp32, the
-    # bitsandbytes 4-bit forward pass and the CLIP vision encoder can still
-    # produce bf16 intermediate tensors whose gradients are also bf16.
-    # The fp16 GradScaler cannot unscale bf16 gradients, causing
-    # NotImplementedError on T4 (Volta) GPUs.
-    #
-    # Setting fp16=False disables the GradScaler entirely.  Memory efficiency
-    # is preserved because:
-    #   - The model is 4-bit quantized (~4 GB)
-    #   - bnb_4bit_compute_dtype=fp16 keeps matmul in fp16 inside BnB layers
-    #   - Only LoRA adapters (~170 MB) train in fp32
-    fp16 = False
-    if t.get("fp16", False):
-        logger.info(
-            "Overriding fp16=True → False (bf16 model + fp16 GradScaler conflict on T4)"
-        )
+    # Determine mixed-precision mode based on GPU capability.
+    # A10G / A100 (Ampere+): use bf16 — no GradScaler needed, native support.
+    # T4 (Volta):            disable fp16 — bf16 model breaks GradScaler.
+    use_bf16 = t.get("bf16", False)
+    use_fp16 = t.get("fp16", False)
 
-    # Force num_workers=0: the collator holds a processor with a chat template
-    # that can be lost when DataLoader pickles it into worker processes.
-    num_workers = 0
-    if t.get("dataloader_num_workers", 0) > 0:
+    if use_bf16 and torch.cuda.is_available() and torch.cuda.is_bf16_supported():
+        # bf16 mode: fast and compatible with native bf16 model weights
+        fp16 = False
+        bf16 = True
+        logger.info("Using bf16 mixed precision (Ampere+ GPU detected)")
+    elif use_fp16:
+        # fp16 mode requested but bf16 model breaks GradScaler — disable
+        fp16 = False
+        bf16 = False
+        logger.info(
+            "Overriding fp16=True → False (bf16 model + fp16 GradScaler conflict)"
+        )
+    else:
+        fp16 = False
+        bf16 = False
+
+    # Allow dataloader workers when using bf16 (no GradScaler pickling issue).
+    # Force 0 workers only when relying on fp32 fallback (processor pickle risk).
+    num_workers = t.get("dataloader_num_workers", 0)
+    if not bf16 and num_workers > 0:
         logger.info(
             "Overriding dataloader_num_workers=%d → 0 (processor pickle safety)",
-            t["dataloader_num_workers"],
+            num_workers,
         )
+        num_workers = 0
 
     os.makedirs(t["output_dir"], exist_ok=True)
     training_args = TrainingArguments(
@@ -308,15 +315,19 @@ def build_trainer(
         optim=t["optim"],
         gradient_checkpointing=t["gradient_checkpointing"],
         fp16=fp16,
+        bf16=bf16,
         dataloader_num_workers=num_workers,
+        dataloader_pin_memory=t.get("dataloader_pin_memory", False),
         remove_unused_columns=t["remove_unused_columns"],
         save_strategy=t["save_strategy"],
+        save_steps=t.get("save_steps", 500),
         save_total_limit=t["save_total_limit"],
         load_best_model_at_end=t["load_best_model_at_end"],
         metric_for_best_model=t["metric_for_best_model"],
         greater_is_better=t["greater_is_better"],
         logging_steps=t["logging_steps"],
         eval_strategy=t["eval_strategy"],
+        eval_steps=t.get("eval_steps", t.get("save_steps", 500)),
         report_to=t["report_to"],
         seed=t["seed"],
     )

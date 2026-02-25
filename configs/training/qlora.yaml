@@ -2,7 +2,8 @@ model:
   id: "llava-hf/llava-v1.6-mistral-7b-hf"
   quantization: "nf4"          # NF4 4-bit for training (superior to fp4)
   double_quant: true           # nested quantization saves ~0.4 GB
-  compute_dtype: "float16"     # bf16 not supported on T4 (Volta arch)
+  compute_dtype: "bfloat16"    # A10G (Ampere) supports bf16 natively
+  attn_implementation: "flash_attention_2"  # ~2x faster attention on Ampere
 
 lora:
   rank: 16
@@ -23,25 +24,29 @@ lora:
 
 training:
   output_dir: "checkpoints/llava-med-qlora"
-  num_epochs: 3
-  per_device_train_batch_size: 1
-  gradient_accumulation_steps: 8    # effective batch size = 8
+  num_epochs: 1                     # 1 epoch is standard for LoRA VQA fine-tuning
+  per_device_train_batch_size: 4    # A10G 23 GB VRAM can fit batch=4 with grad ckpt
+  gradient_accumulation_steps: 2    # effective batch size = 8
   learning_rate: 2.0e-4
   lr_scheduler_type: "cosine"
   warmup_ratio: 0.03
   max_grad_norm: 0.3
   optim: "paged_adamw_8bit"         # offloads optimizer states, saves ~2 GB
-  gradient_checkpointing: true      # mandatory on T4, trades compute for memory
-  fp16: true                        # T4 is Volta — no bfloat16 support
-  dataloader_num_workers: 2
+  gradient_checkpointing: true      # trades compute for memory
+  bf16: true                        # A10G (Ampere) — native bf16 support
+  fp16: false                       # disabled — bf16 is better on Ampere
+  dataloader_num_workers: 4         # A10G has more CPU headroom
+  dataloader_pin_memory: true       # faster CPU→GPU transfer
   remove_unused_columns: false      # required for multimodal — collator needs image col
-  save_strategy: "epoch"
+  save_strategy: "steps"
+  save_steps: 500                   # checkpoint every 500 steps
   save_total_limit: 2               # keep best 2 checkpoints
   load_best_model_at_end: true
   metric_for_best_model: "eval_loss"
   greater_is_better: false
   logging_steps: 25
-  eval_strategy: "epoch"
+  eval_strategy: "steps"
+  eval_steps: 500                   # eval every 500 steps
   report_to: "none"                 # no W&B / MLflow — JSON logging only
   seed: 42
 
@@ -49,7 +54,7 @@ data:
   include_vqa_rad: true
   include_slake: true
   include_pathvqa: true
-  max_length: 4096                  # LLaVA-Next: max 4 tiles × 576 + 1 base × 576 = 2880 image tokens + text
+  max_length: 2048                  # shorter — VQA answers are 1-5 words; saves memory + speed
   seed: 42
 
 experiment:
