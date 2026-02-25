@@ -32,7 +32,7 @@ training:
   warmup_ratio: 0.03
   max_grad_norm: 0.3
   optim: "paged_adamw_8bit"         # offloads optimizer states, saves ~2 GB
-  gradient_checkpointing: true      # trades compute for memory
+  gradient_checkpointing: false      # A10G has 23GB — disabled for ~30% faster steps
   bf16: true                        # A10G (Ampere) — native bf16 support
   fp16: false                       # disabled — bf16 is better on Ampere
   dataloader_num_workers: 4         # A10G has more CPU headroom
