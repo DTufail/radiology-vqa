@@ -126,8 +126,8 @@ def main() -> None:
     )
     parser.add_argument(
         "--radlex-xls",
-        default="data/Radlex.xls",
-        help="Path to Radlex.xls ontology file (default: data/Radlex.xls)",
+        default="data/raw/radlex/Radlex.xls",
+        help="Path to Radlex.xls ontology file (default: data/raw/radlex/Radlex.xls)",
     )
     parser.add_argument(
         "--slake-train",

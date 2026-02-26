@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     supervisor_evidence_threshold: float = 0.4  # min retrieval score to count as supporting
     supervisor_min_supporting_evidence: int = 1  # minimum supporting docs to count as grounded
     supervisor_max_retries: int = 1             # max re_query attempts before abstain
+    supervisor_semantic_threshold: float = 0.5  # min cosine similarity (Phase 6B-3 embedding agreement)
 
     # Benchmark settings
     benchmark_output_dir: Path = Path("./data/benchmarks")

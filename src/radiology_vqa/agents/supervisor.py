@@ -8,15 +8,23 @@ Thresholds are calibrated to the Phase 3 LLaVA v1.6 baseline on VQA-RAD (451 sam
   - HIGH_CONFIDENCE=0.85 sits between these two means.
   - LOW_CONFIDENCE=0.55 is a conservative lower bound for clinical use.
 
-Keyword-based agreement scoring is deliberately simple. Phase 6 can upgrade to
-embedding-based agreement (semantic similarity) to catch synonyms like
-"tumor" / "neoplasm" or "consolidation" / "opacity".
+Agreement scoring (Phase 6B-3) uses PubMedBERT cosine similarity instead of keyword
+matching. The same S-PubMedBert-MS-MARCO model used for FAISS retrieval is reused here,
+meaning no additional model is loaded. Cosine similarity handles synonyms and paraphrases
+that keyword matching misses ("tumor"/"neoplasm", "consolidation"/"opacity",
+"cardiac silhouette"/"cardiomegaly"), directly targeting the 61 over-abstentions
+observed in the Phase 6A evaluation.
 """
 
 import logging
-import re
+from typing import TYPE_CHECKING
+
+import numpy as np
 
 from radiology_vqa.agents.state import AgentState
+
+if TYPE_CHECKING:
+    from radiology_vqa.rag.embedder import Embedder
 
 logger = logging.getLogger(__name__)
 
@@ -26,21 +34,10 @@ LOW_CONFIDENCE: float = 0.55
 EVIDENCE_SUPPORT_THRESHOLD: float = 0.4
 MIN_SUPPORTING_EVIDENCE: int = 1
 
-# Function words to skip when extracting medical terms from questions/answers.
-# Includes domain-specific radiology question words that carry no medical entity signal.
-_STOP_WORDS: frozenset[str] = frozenset({
-    "is", "are", "was", "were", "be", "been", "being",
-    "the", "a", "an", "in", "on", "at", "to", "for",
-    "of", "and", "or", "but", "with", "by", "from", "than",
-    "there", "this", "that", "these", "those",
-    "what", "which", "who", "how", "when", "where", "why",
-    "does", "do", "did", "has", "have", "had",
-    "can", "will", "should", "would", "could",
-    "not", "any", "some", "its", "more", "most",
-    # Radiology question boilerplate — not medical entities
-    "image", "visible", "present", "shown", "evidence",
-    "side", "type", "view", "taken",
-})
+# Module-level embedder singleton — loaded lazily on first agreement computation.
+# Reuses the same model (S-PubMedBert-MS-MARCO) already loaded by the Retriever,
+# so in production the process-level model cache means no duplicate weights.
+_embedder = None
 
 
 def supervisor_node(state: AgentState) -> AgentState:
@@ -197,19 +194,18 @@ def supervisor_node(state: AgentState) -> AgentState:
     return {**state, **updates}
 
 
-def _keyword_in_text(kw: str, text: str) -> bool:
-    """Return True if keyword (or its approximate singular) appears in text.
+def _get_embedder():
+    """Lazy-load and cache the sentence embedding model.
 
-    Also tries the stem without trailing 's' to handle plurals from questions
-    matching singular forms in the KG (e.g. "lungs" → "lung", "bones" → "bone").
-    Only strips 's' when the resulting stem is at least 4 characters, to avoid
-    mangling words like "anus" → "anu" or "bus" → "bu".
+    Reuses the same model identifier (S-PubMedBert-MS-MARCO) as the FAISS
+    retriever, so in production the sentence-transformers process-level cache
+    avoids loading duplicate weights into GPU memory.
     """
-    if kw in text:
-        return True
-    if kw.endswith("s") and len(kw) >= 5:
-        return kw[:-1] in text
-    return False
+    global _embedder
+    if _embedder is None:
+        from radiology_vqa.rag.embedder import Embedder
+        _embedder = Embedder()
+    return _embedder
 
 
 def _compute_agreement(
@@ -218,60 +214,96 @@ def _compute_agreement(
     question: str,
     answer_type: str,
     support_threshold: float,
+    embedder=None,
 ) -> tuple[float, list[dict]]:
-    """Compute keyword-based agreement between VLM answer and retrieved evidence.
+    """Compute semantic agreement using PubMedBERT cosine similarity.
 
-    Returns (agreement_score, supporting_evidence_items).
+    Replaces Phase 5 keyword matching. Handles synonyms and paraphrases that
+    keyword matching misses ("tumor"/"neoplasm", "consolidation"/"opacity",
+    "cardiac silhouette"/"cardiomegaly").
 
-    Matching strategy:
-        Open questions: tokenise visual_answer (words > 2 chars), check if any word
-            appears (case-insensitive) in evidence text or entity_name.
-        Closed (yes/no) questions: extract medical terms from the question instead
-            (the visual_answer is "yes"/"no" which carries no medical content).
+    Query construction (same dual-signal strategy as the former keyword approach):
+        Closed / yes-no: embed the full question — the visual_answer carries no
+            medical signal when it is "yes" or "no".
+        Open: embed the visual_answer — the actual medical term predicted by the VLM.
 
-    Plural normalisation: "lungs" also matches "lung", "bones" also matches "bone".
-    The SLAKE KG stores entity names in singular form; questions use plurals.
+    An evidence item is "supporting" when:
+        cosine_sim(query_embedding, evidence_embedding) >= semantic_threshold
+        AND item.score >= support_threshold (retrieval quality filter, unchanged).
 
-    Limitation: keyword matching misses semantic equivalents ("tumor" vs "neoplasm").
-    Phase 6 can replace this with embedding cosine similarity.
+    The evidence embedding concatenates text + entity_name so that short entity-name
+    fields ("Pneumonia") and full sentence fields both contribute to the match.
+
+    Agreement score = n_supporting / n_total_evidence, preserving the same
+    normalisation formula and the `> 0` routing contract used by supervisor_node.
+
+    Args:
+        visual_answer:    VLM prediction string.
+        evidence:         List of evidence dicts from retrieval_agent_node.
+        question:         Original question string.
+        answer_type:      "open" or "closed".
+        support_threshold: Minimum retrieval score (0–1) to consider an item.
+        embedder:         Optional Embedder instance (injected in tests / benchmarks).
+                          If None, the module-level singleton is used.
+
+    Returns:
+        (agreement_score, supporting_evidence_items)
     """
     if not evidence:
         return 0.0, []
 
-    # Build keyword set.
-    # Use Strategy B (question keywords) when EITHER signal indicates a closed question:
-    # (a) answer_type is explicitly "closed", OR
-    # (b) the VLM returned "yes"/"no" regardless of the recorded answer_type.
-    # "yes"/"no" carry no medical content so matching them against KG text is useless.
+    # Dual-signal: closed questions and yes/no answers → embed the question
     va_norm = visual_answer.strip().lower()
-    use_question_keywords = (answer_type == "closed") or (va_norm in ("yes", "no"))
+    use_question = (answer_type == "closed") or (va_norm in ("yes", "no"))
+    query_text = question.strip() if use_question else visual_answer.strip()
 
-    if use_question_keywords:
-        # Strategy B: extract medical terms from the question
-        words = re.findall(r"[a-z]+", question.lower())
-        keywords = {w for w in words if len(w) > 2 and w not in _STOP_WORDS}
-        if not keywords:
-            # Fallback: question had only stopwords — try visual_answer tokens
-            words = re.findall(r"[a-z]+", visual_answer.lower())
-            keywords = {w for w in words if len(w) > 2}
-    else:
-        # Strategy A: extract tokens from the VLM's answer (open-ended)
-        words = re.findall(r"[a-z]+", visual_answer.lower())
-        keywords = {w for w in words if len(w) > 2}
-
-    if not keywords:
+    if not query_text:
         return 0.0, []
 
-    supporting: list[dict] = []
-    for item in evidence:
-        if item.get("score", 0.0) < support_threshold:
-            continue
-        text_lower = item.get("text", "").lower()
-        entity_lower = item.get("entity_name", "").lower()
-        if any(_keyword_in_text(kw, text_lower) or _keyword_in_text(kw, entity_lower)
-               for kw in keywords):
-            supporting.append(item)
+    from radiology_vqa.config import settings
 
-    # Normalise by total evidence count (not just above-threshold candidates)
+    semantic_threshold: float = getattr(
+        settings, "supervisor_semantic_threshold", 0.5
+    )
+
+    # Filter by retrieval quality first (same gate as keyword approach)
+    candidates = [item for item in evidence if item.get("score", 0.0) >= support_threshold]
+    if not candidates:
+        return 0.0, []
+
+    emb = embedder if embedder is not None else _get_embedder()
+
+    # query_vec: shape (dim,), L2-normalised
+    query_vec = emb.embed_query(query_text)
+
+    # Concatenate text + entity_name for richer evidence representation.
+    # Both fields are present in every evidence dict produced by retrieval_agent_node.
+    evidence_texts = [
+        f"{item.get('text', '')} {item.get('entity_name', '')}".strip()
+        for item in candidates
+    ]
+    # evidence_vecs: shape (n, dim), L2-normalised
+    evidence_vecs = emb.embed_texts(evidence_texts)
+
+    # Cosine similarity = dot product of L2-normalised vectors
+    sims: np.ndarray = evidence_vecs @ query_vec  # shape (n,)
+
+    supporting = [
+        item
+        for item, sim in zip(candidates, sims)
+        if float(sim) >= semantic_threshold
+    ]
+
+    # Normalise by total evidence count (preserves routing contract: score ∈ [0, 1])
     score = len(supporting) / len(evidence)
+
+    logger.debug(
+        "Embedding agreement: query=%r sims=[%s] supporting=%d/%d score=%.3f",
+        query_text[:60],
+        ", ".join(f"{s:.3f}" for s in sims),
+        len(supporting),
+        len(evidence),
+        score,
+    )
+
     return score, supporting
