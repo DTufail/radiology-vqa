@@ -18,9 +18,13 @@ vlm:
   concise_mode: true
   adapter_path: "checkpoints/llava-med-qlora/best"   # set after training completes
 
+data:
+  index_dir: "data/indices_v2"       # Phase 6B-2 expanded index (~13,400 docs)
+                                     # base.yaml still points at data/indices (2,987 docs)
+
 rag:
   retrieval_method: "hybrid"         # BM25 + dense retrieval with Reciprocal Rank Fusion
-  bm25_index_dir: "data/bm25_index"  # built by: python scripts/build_index.py --bm25
+  bm25_index_dir: "data/bm25_index"  # rebuilt from expanded corpus by build_index.py --bm25
   bm25_top_k: 20                     # BM25 candidates before fusion
   dense_top_k: 20                    # Dense candidates before fusion
   rrf_k: 60                          # RRF smoothing constant (standard value)

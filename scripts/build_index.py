@@ -101,7 +101,18 @@ def main() -> None:
         "--source",
         choices=["kg", "all"],
         default="all",
-        help="Which knowledge sources to index (default: all)",
+        help="Legacy single-source flag (default: all). Use --sources for multi-source builds.",
+    )
+    parser.add_argument(
+        "--sources",
+        nargs="+",
+        default=None,
+        choices=["kg", "radlex", "qa"],
+        help=(
+            "Document sources to include in the index. "
+            "Choices: kg (SLAKE KG), radlex (RadLex ontology), qa (VQA-RAD + SLAKE QA pairs). "
+            "Default when omitted: ['kg'] (backward-compatible Phase 5 behaviour)."
+        ),
     )
     parser.add_argument(
         "--bm25",
@@ -113,15 +124,70 @@ def main() -> None:
         default="data/bm25_index",
         help="Output directory for BM25 index files (default: data/bm25_index)",
     )
+    parser.add_argument(
+        "--radlex-xls",
+        default="data/Radlex.xls",
+        help="Path to Radlex.xls ontology file (default: data/Radlex.xls)",
+    )
+    parser.add_argument(
+        "--slake-train",
+        default="data/raw/Slake1.0/train.json",
+        help="Path to SLAKE train.json for QA pseudo-docs (default: data/raw/Slake1.0/train.json)",
+    )
+    parser.add_argument(
+        "--output-index-dir",
+        default=None,
+        help=(
+            "Output directory for FAISS index. "
+            "Defaults to the index_dir from settings (data/indices). "
+            "Use data/indices_v2 for the expanded Phase 6B-2 build."
+        ),
+    )
     args = parser.parse_args()
 
+    # Resolve which sources to build
+    # --sources takes priority over legacy --source flag
+    if args.sources is not None:
+        active_sources = args.sources
+    else:
+        # Backward-compatible default: KG only (same as Phase 5 behaviour)
+        active_sources = ["kg"]
+
+    # Resolve output directory
+    output_index_dir = Path(args.output_index_dir) if args.output_index_dir else settings.index_dir
+
     t_start = time.perf_counter()
+    documents: list = []
 
-    if args.source in ("kg", "all"):
-        documents = build_from_kg()
+    # ── KG source ──────────────────────────────────────────────────────────────
+    if "kg" in active_sources:
+        kg_docs = build_from_kg()
+        documents.extend(kg_docs)
 
-    if args.source == "all":
-        print("Note: PubMed and SLAKE-QA sources are deferred. Indexing KG only.")
+    # ── RadLex source ──────────────────────────────────────────────────────────
+    if "radlex" in active_sources:
+        from radiology_vqa.rag.radlex_processor import RadLexProcessor
+
+        print(f"\nLoading RadLex ontology from {args.radlex_xls} ...")
+        radlex_docs = RadLexProcessor(args.radlex_xls).process()
+        print(f"  RadLex Tier 1 documents: {len(radlex_docs)}")
+        documents.extend(radlex_docs)
+
+    # ── QA pseudo-documents source ─────────────────────────────────────────────
+    if "qa" in active_sources:
+        from radiology_vqa.rag.qa_pseudo_processor import QAPseudoProcessor
+
+        proc = QAPseudoProcessor(args.slake_train)
+
+        print("\nLoading VQA-RAD QA pseudo-documents ...")
+        vqarad_docs = proc.process_vqarad()
+        print(f"  VQA-RAD pseudo-documents: {len(vqarad_docs)}")
+        documents.extend(vqarad_docs)
+
+        print(f"\nLoading SLAKE QA pseudo-documents from {args.slake_train} ...")
+        slake_qa_docs = proc.process_slake()
+        print(f"  SLAKE QA pseudo-documents (English only): {len(slake_qa_docs)}")
+        documents.extend(slake_qa_docs)
 
     print(f"\nInitializing embedding model ({settings.embedding_model}) ...")
     embedder = Embedder()
@@ -130,15 +196,15 @@ def main() -> None:
     indexer = FAISSIndexer(embedder)
     indexer.build_index(documents)
 
-    print(f"Saving index to {settings.index_dir} ...")
-    indexer.save(settings.index_dir)
+    print(f"Saving index to {output_index_dir} ...")
+    indexer.save(output_index_dir)
 
     if args.bm25:
         print(f"\nBuilding BM25 index in {args.bm25_dir} ...")
         build_bm25_index(documents, args.bm25_dir)
 
     build_time = time.perf_counter() - t_start
-    print_summary(documents, settings.index_dir, build_time)
+    print_summary(documents, output_index_dir, build_time)
 
 
 if __name__ == "__main__":
