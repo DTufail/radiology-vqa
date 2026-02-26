@@ -23,6 +23,7 @@ rag:
   embedding_model: "pritamdeka/S-PubMedBert-MS-MARCO"
   retrieval_top_k: 5
   retrieval_min_score: 0.3
+  retrieval_method: "dense"        # "dense" = Phase 5 behaviour (default). "hybrid" = BM25+dense+RRF.
 
 agent:
   supervisor_high_confidence: 0.85

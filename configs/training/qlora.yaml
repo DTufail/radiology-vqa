@@ -24,15 +24,16 @@ lora:
 
 training:
   output_dir: "checkpoints/llava-med-qlora"
-  num_epochs: 1                     # 1 epoch is standard for LoRA VQA fine-tuning
-  per_device_train_batch_size: 4    # A10G 23 GB VRAM can fit batch=4 with grad ckpt
-  gradient_accumulation_steps: 2    # effective batch size = 8
+  num_epochs: 3                     # 3 epochs — A10G is fast enough; load_best_model guards overfitting
+  per_device_train_batch_size: 1    # max_length=4096 + 7B model — batch=1 avoids OOM on 22GB A10G
+  gradient_accumulation_steps: 8    # effective batch size = 8 (same as before)
   learning_rate: 2.0e-4
   lr_scheduler_type: "cosine"
   warmup_ratio: 0.03
   max_grad_norm: 0.3
+  weight_decay: 0.01                 # mild L2 regularisation for 3-epoch run
   optim: "paged_adamw_8bit"         # offloads optimizer states, saves ~2 GB
-  gradient_checkpointing: false      # A10G has 23GB — disabled for ~30% faster steps
+  gradient_checkpointing: true       # re-enabled — max_length=4096 needs memory safety
   bf16: true                        # A10G (Ampere) — native bf16 support
   fp16: false                       # disabled — bf16 is better on Ampere
   dataloader_num_workers: 4         # A10G has more CPU headroom
@@ -40,7 +41,7 @@ training:
   remove_unused_columns: false      # required for multimodal — collator needs image col
   save_strategy: "steps"
   save_steps: 500                   # checkpoint every 500 steps
-  save_total_limit: 2               # keep best 2 checkpoints
+  save_total_limit: 3               # keep 3 — avoids deleting best when load_best_model_at_end=true
   load_best_model_at_end: true
   metric_for_best_model: "eval_loss"
   greater_is_better: false
@@ -53,8 +54,8 @@ training:
 data:
   include_vqa_rad: true
   include_slake: true
-  include_pathvqa: true
-  max_length: 2048                  # shorter — VQA answers are 1-5 words; saves memory + speed
+  include_pathvqa: false             # pathology, not radiology — adds noise to domain-specific model
+  max_length: 4096                  # LLaVA-Next anyres expands 1 image → ~2928 patch tokens; need headroom
   seed: 42
 
 experiment:

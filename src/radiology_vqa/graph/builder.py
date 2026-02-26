@@ -58,9 +58,29 @@ class GraphBuilder:
             vlm = create_vlm_backend(self._config)
 
         if retriever is None:
-            from radiology_vqa.rag.retriever import Retriever
-            logger.info("GraphBuilder.build(): loading Retriever from %s", self._config.index_dir)
-            retriever = Retriever(self._config.index_dir)
+            from radiology_vqa.rag.retriever import HybridRetriever, Retriever
+
+            retrieval_method = getattr(self._config, "retrieval_method", "dense")
+            if retrieval_method == "hybrid":
+                logger.info(
+                    "GraphBuilder.build(): loading HybridRetriever (BM25+dense) from %s",
+                    self._config.index_dir,
+                )
+                dense = Retriever(self._config.index_dir)
+                retriever = HybridRetriever(
+                    dense_retriever=dense,
+                    bm25_index_dir=str(getattr(self._config, "bm25_index_dir", "data/bm25_index")),
+                    bm25_top_k=getattr(self._config, "bm25_top_k", 20),
+                    dense_top_k=getattr(self._config, "dense_top_k", 20),
+                    rrf_k=getattr(self._config, "rrf_k", 60),
+                    min_score=getattr(self._config, "retrieval_min_score", 0.0),
+                )
+            else:
+                logger.info(
+                    "GraphBuilder.build(): loading Retriever (dense) from %s",
+                    self._config.index_dir,
+                )
+                retriever = Retriever(self._config.index_dir)
 
         visual_fn = partial(visual_agent_node, vlm=vlm)
         retrieval_fn = partial(

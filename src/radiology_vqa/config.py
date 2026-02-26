@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     retrieval_top_k: int = 5
     retrieval_min_score: float = 0.3
 
+    # Hybrid retrieval settings (Phase 6B-1)
+    # "dense" preserves Phase 5 behaviour.  "hybrid" enables BM25 + dense + RRF.
+    retrieval_method: str = "dense"
+    bm25_index_dir: Path = Path("data/bm25_index")
+    bm25_top_k: int = 20   # BM25 candidates before fusion
+    dense_top_k: int = 20  # Dense candidates before fusion
+    rrf_k: int = 60         # RRF smoothing constant (standard value)
+
     # VLM settings
     vlm_backend: str = "llava"  # "llava", "llava_med" (alias), or "blip2"
     vlm_model_id: str = "llava-hf/llava-v1.6-mistral-7b-hf"

@@ -312,6 +312,7 @@ def build_trainer(
         lr_scheduler_type=t["lr_scheduler_type"],
         warmup_ratio=t["warmup_ratio"],
         max_grad_norm=t["max_grad_norm"],
+        weight_decay=t.get("weight_decay", 0.0),
         optim=t["optim"],
         gradient_checkpointing=t["gradient_checkpointing"],
         fp16=fp16,
@@ -448,6 +449,46 @@ def run_dry_run(cfg: dict) -> None:
         f"{param_info['total']:,}",
         param_info["pct"],
     )
+
+    # ── VRAM stress test: single forward + backward pass ──────────────────
+    if torch.cuda.is_available():
+        logger.info("--- VRAM stress test (1 forward + backward pass) ---")
+        torch.cuda.reset_peak_memory_stats()
+        device = torch.device("cuda")
+        # Move batch tensors to GPU
+        gpu_batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v for k, v in batch.items()}
+        try:
+            model.train()
+            with torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=cfg["training"].get("bf16", False)):
+                outputs = model(**gpu_batch)
+                loss = outputs.loss
+            loss.backward()
+            model.zero_grad()
+
+            peak_mb = torch.cuda.max_memory_allocated() / 1024**2
+            total_mb = torch.cuda.get_device_properties(0).total_mem / 1024**2
+            headroom_mb = total_mb - peak_mb
+            logger.info(
+                "VRAM peak: %.0f MB / %.0f MB total  (%.0f MB headroom)",
+                peak_mb, total_mb, headroom_mb,
+            )
+            if headroom_mb < 1024:
+                logger.warning(
+                    "⚠ Less than 1 GB headroom — OOM risk during training! "
+                    "Consider reducing per_device_train_batch_size or max_length."
+                )
+            else:
+                logger.info("✓ VRAM headroom looks safe for training.")
+        except torch.cuda.OutOfMemoryError:
+            logger.error(
+                "✗ OOM during stress test! Reduce per_device_train_batch_size "
+                "or max_length before running training."
+            )
+            sys.exit(1)
+        finally:
+            del gpu_batch
+            torch.cuda.empty_cache()
+
     logger.info("Dry run complete. Ready to train.")
     sys.exit(0)
 

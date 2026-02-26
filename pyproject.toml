@@ -81,6 +81,11 @@ dependencies = [
     "scikit-learn>=1.3",
     # scipy: McNemar's test for statistical significance in comparator.
     "scipy>=1.11",
+
+    # ── Hybrid retrieval (Phase 6B) ───────────────────────────────────────────
+    # Pure-Python BM25Okapi implementation.  No C extensions, no build step.
+    # Used alongside the FAISS dense retriever with Reciprocal Rank Fusion.
+    "rank-bm25>=0.2.2",
 ]
 
 [project.optional-dependencies]

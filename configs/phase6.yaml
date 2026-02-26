@@ -17,3 +17,12 @@ vlm:
   device: "auto"
   concise_mode: true
   adapter_path: "checkpoints/llava-med-qlora/best"   # set after training completes
+
+rag:
+  retrieval_method: "hybrid"         # BM25 + dense retrieval with Reciprocal Rank Fusion
+  bm25_index_dir: "data/bm25_index"  # built by: python scripts/build_index.py --bm25
+  bm25_top_k: 20                     # BM25 candidates before fusion
+  dense_top_k: 20                    # Dense candidates before fusion
+  rrf_k: 60                          # RRF smoothing constant (standard value)
+  retrieval_top_k: 5                 # Final top-K returned to agent after fusion
+  retrieval_min_score: 0.0           # RRF scores are relative; no hard floor needed
