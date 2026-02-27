@@ -95,9 +95,15 @@ def supervisor_node(state: AgentState) -> AgentState:
         }
 
     # ── Step 2: Compute agreement ──────────────────────────────────────────────
-    agreement_score, supporting = _compute_agreement(
-        visual_answer, evidence, question, answer_type, support_threshold
-    )
+    agreement_method: str = getattr(settings, "agreement_method", "embedding")
+    if agreement_method == "keyword":
+        agreement_score, supporting = _compute_agreement_keyword(
+            visual_answer, evidence, question, answer_type, support_threshold
+        )
+    else:
+        agreement_score, supporting = _compute_agreement(
+            visual_answer, evidence, question, answer_type, support_threshold
+        )
     updates: dict = {"agreement_score": agreement_score}
 
     # ── Step 3: Route ──────────────────────────────────────────────────────────
@@ -192,6 +198,75 @@ def supervisor_node(state: AgentState) -> AgentState:
         logger.info("Supervisor [Case E]: abstain low_conf=%.3f", visual_confidence)
 
     return {**state, **updates}
+
+
+_STOP_WORDS = frozenset({
+    "is", "are", "was", "were", "does", "do", "did", "has", "have", "had",
+    "a", "an", "the", "in", "on", "at", "of", "to", "for", "with", "this",
+    "that", "what", "which", "where", "how", "why", "when", "who", "there",
+    "any", "show", "can", "be", "it", "from",
+})
+
+
+def _keyword_in_text(kw: str, text: str) -> bool:
+    """Check if keyword (or its singular stem) appears in text."""
+    text_lower = text.lower()
+    if kw in text_lower:
+        return True
+    if kw.endswith("s") and len(kw) >= 5 and kw[:-1] in text_lower:
+        return True
+    return False
+
+
+def _extract_keywords(text: str) -> list[str]:
+    """Extract non-stopword tokens of length >= 3."""
+    tokens = []
+    for word in text.lower().split():
+        token = word.strip("?.!,;:")
+        if token and token not in _STOP_WORDS and len(token) >= 3:
+            tokens.append(token)
+    return tokens
+
+
+def _compute_agreement_keyword(
+    visual_answer: str,
+    evidence: list[dict],
+    question: str,
+    answer_type: str,
+    support_threshold: float,
+) -> tuple[float, list[dict]]:
+    """Phase 5 keyword-based agreement (used for ablation configs 2 and 4).
+
+    Dual-signal: closed/yes-no → extract from question; open → extract from visual_answer.
+    Falls back to visual_answer tokens if question yields empty keyword set.
+    """
+    if not evidence:
+        return 0.0, []
+
+    va_norm = visual_answer.strip().lower()
+    use_question = (answer_type == "closed") or (va_norm in ("yes", "no"))
+    keywords = _extract_keywords(question if use_question else visual_answer)
+    if not keywords and use_question:
+        keywords = _extract_keywords(visual_answer)
+    if not keywords:
+        return 0.0, []
+
+    candidates = [item for item in evidence if item.get("score", 0.0) >= support_threshold]
+    if not candidates:
+        return 0.0, []
+
+    supporting = []
+    for item in candidates:
+        item_text = f"{item.get('text', '')} {item.get('entity_name', '')}".lower()
+        if any(_keyword_in_text(kw, item_text) for kw in keywords):
+            supporting.append(item)
+
+    score = len(supporting) / len(evidence)
+    logger.debug(
+        "Keyword agreement: keywords=%r supporting=%d/%d score=%.3f",
+        keywords[:5], len(supporting), len(evidence), score,
+    )
+    return score, supporting
 
 
 def _get_embedder():

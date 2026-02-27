@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     # DIFF medical pairs (pneumonia/kidney, cardiomegaly/pleural effusion) score 0.82–0.86.
     # Natural gap: 0.857–0.882; 0.87 is the midpoint.
 
+    # Agreement method for supervisor (Phase 6D config support)
+    # "embedding" = Phase 6B-3 cosine similarity (default, current behaviour).
+    # "keyword"   = Phase 5 keyword/token matching (used for ablation configs 2 and 4).
+    agreement_method: str = "embedding"
+
     # Calibration settings (Phase 6C)
     # "none" = Phase 5/6A/6B behaviour — no calibration (backward compatible).
     # "platt" = Platt scaling (2-param logistic fit on validation set).

@@ -1,0 +1,53 @@
+# Config 4 — finetuned_agent
+#
+# Fine-tuned VLM (QLoRA adapter) + Phase 5 agent pipeline:
+#   - LoRA adapter loaded from checkpoints/llava-med-qlora/best/
+#   - Original KG-only index (2,987 docs, data/indices/)
+#   - Dense FAISS retrieval only (no BM25)
+#   - Keyword agreement (Phase 5 supervisor logic)
+#   - Original Phase 5 supervisor thresholds (0.85 / 0.55)
+#   - No confidence calibration
+#
+# Purpose: ablation — shows fine-tuning effect on the agent pipeline.
+# Isolates: fine-tuning effect vs Config 2 (same agent, zero-shot VLM).
+# Comparison with Config 5 shows: 6B KG expansion + embedding agreement effect.
+#
+# Usage (on SageMaker):
+#   VLM_ADAPTER_PATH=checkpoints/llava-med-qlora/best \
+#   AGREEMENT_METHOD=keyword \
+#   RETRIEVAL_METHOD=dense \
+#   INDEX_DIR=data/indices \
+#   CALIBRATION_METHOD=none \
+#   SUPERVISOR_HIGH_CONFIDENCE=0.85 \
+#   SUPERVISOR_LOW_CONFIDENCE=0.55 \
+#     python scripts/run_evaluation.py \
+#       --mode agent \
+#       --dataset vqa_rad \
+#       --split test \
+#       --no-bertscore \
+#       --output-dir data/evaluation_reports/config4_finetuned_agent/
+
+vlm:
+  backend: "llava"
+  model_id: "llava-hf/llava-v1.6-mistral-7b-hf"
+  quantize: "4bit"
+  max_new_tokens: 128
+  device: "auto"
+  concise_mode: true
+  adapter_path: "checkpoints/llava-med-qlora/best"   # QLoRA adapter
+
+data:
+  index_dir: "data/indices"         # original KG-only index (2,987 docs)
+
+rag:
+  retrieval_method: "dense"         # dense FAISS only — no BM25
+  retrieval_top_k: 5
+  retrieval_min_score: 0.3
+
+agent:
+  agreement_method: "keyword"       # Phase 5 keyword matching
+  supervisor_high_confidence: 0.85  # Phase 5 threshold
+  supervisor_low_confidence: 0.55   # Phase 5 threshold
+  supervisor_max_retries: 1
+
+calibration_method: "none"

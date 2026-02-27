@@ -30,15 +30,16 @@ rag:
   retrieval_top_k: 5
   retrieval_min_score: 0.0
 
-# Phase 6C — Platt calibration (fit on SLAKE validation, transferred to VQA-RAD test).
-# After calibration, the confidence distribution compresses downward, so supervisor
-# thresholds must be re-tuned. Run scripts/fit_calibration.py threshold sweep to confirm.
-calibration_method: "platt"
-calibration_model_path: "data/calibration/platt_scaler.json"
+# Phase 6C — Isotonic calibration (fit on SLAKE validation, transferred to VQA-RAD test).
+# Isotonic won over Platt: ECE 0.1331 → 0.0047 vs 0.1106 (12 knots, 200 SLAKE val samples).
+# Platt params were extreme (a=17.63) due to narrow raw confidence distribution (~0.93 mean).
+calibration_method: "isotonic"
+calibration_model_path: "data/calibration/isotonic_scaler.json"
 
 agent:
-  # Adjusted for calibrated confidence scores (lower than raw — overconfidence removed).
-  # These are starting-point values; tune using the threshold sweep from fit_calibration.py.
-  supervisor_high_confidence: 0.70   # was 0.85 for raw scores
-  supervisor_low_confidence: 0.40    # was 0.55 for raw scores
+  # Threshold sweep on calibrated SLAKE val shows bimodal distribution after isotonic.
+  # low_t=0.35: abstain_rate=15.5%, accuracy_when_answered=88.8% (sweet spot).
+  # low_t=0.30: abstain_rate=1.0%,  accuracy_when_answered=80.8% (minimal abstention).
+  supervisor_high_confidence: 0.60   # calibrated scores are bimodal — anything above is high
+  supervisor_low_confidence: 0.35    # sweep sweet spot: 15.5% abstain, 88.8% accuracy
   supervisor_max_retries: 1

@@ -2,7 +2,8 @@
 
 **Phase 6A Status:** Complete — training finished 2026-02-26T06:34:46 UTC
 **Phase 6B Status:** Complete — hybrid retrieval, expanded index (13,435 docs), embedding agreement
-**Phase 6C–6D Status:** Planned
+**Phase 6C Status:** Complete — isotonic calibration, ECE 0.351 → 0.075, AUROC 0.761 → 0.868
+**Phase 6D Status:** Complete — 6-config ablation framework, ARCHITECTURE.md, EVALUATION.md, README.md
 **Final eval loss:** 0.1473 | **Perplexity:** 1.16 | **Train loss:** 0.4689
 **Hardware:** NVIDIA A10G (22.1 GB VRAM), SageMaker ml.g5.2xlarge
 **Training time:** 23h 13m 57s (2,514 steps across 3 epochs)
@@ -12,7 +13,7 @@ interfaces and data contracts stable:
 
 - **Phase 6A** — QLoRA fine-tuning of the LLaVA-Next 7B language layers on medical VQA data
 - **Phase 6B** — Knowledge graph expansion and embedding-based supervisor agreement
-- **Phase 6C** — Temperature scaling for calibrated confidence scores
+- **Phase 6C** — Post-hoc confidence calibration (isotonic regression)
 - **Phase 6D** — Final 6-configuration evaluation and portfolio packaging
 
 ---
@@ -1338,63 +1339,92 @@ practice this adds ~4s to the first sample's latency; all subsequent samples are
 
 ---
 
-## 5. Phase 6C — Confidence Recalibration [PLANNED]
+## 5. Phase 6C — Confidence Recalibration [COMPLETE]
 
-**Dependency:** AFTER Phase 6A + 6B. Calibrate the final complete system.
+**Status:** Complete — 2026-02-27. Full write-up: `docs/phase6c_calibration.md`.
 
-### 6C-1 — Temperature Scaling
+The fine-tuned model assigned raw confidence 0.97–0.99 to nearly all predictions regardless of correctness, making the supervisor's threshold logic meaningless. Phase 6C applied post-hoc calibration to map raw scores to well-calibrated probabilities.
 
-**New file:** `src/radiology_vqa/calibration/temperature.py`
+### What Was Built
 
-Based on Guo et al. (ICML 2017): divide logits by learned scalar T before softmax.
-Single parameter fitted on validation set via L-BFGS to minimise NLL. One example
-showed ECE reduction from 2.10% to 0.25% with a single scalar.
+**`src/radiology_vqa/calibration/platt.py`** — Platt scaling (sigmoid fit, 2 parameters, L-BFGS-B)
 
-Implementation: ~30 lines of PyTorch. Fit on held-out VQA-RAD validation samples.
-Integrate as config option (`temperature: 1.42` or whatever is learned).
+**`src/radiology_vqa/calibration/isotonic.py`** — Isotonic regression (non-parametric, sklearn.IsotonicRegression, JSON-serialised knot points)
 
-**Target:** ECE 0.198 → < 0.10
+**`scripts/fit_calibration.py`** — Fitting script:
+1. Load fine-tuned VLM with calibration disabled (collect raw scores)
+2. Run on SLAKE validation set (1,053 samples, held-out during training)
+3. Fit both Platt and isotonic, compare ECE, save the better one
+4. Sweep supervisor thresholds on calibrated val scores to recommend HIGH_CONF/LOW_CONF
 
-### 6C-2 — Bin-wise Calibration (if needed)
+**`configs/phase6_calibrated.yaml`** — Extends phase6.yaml with `calibration_method: "isotonic"`, `calibration_model_path: "data/calibration/isotonic_scaler.json"`, `supervisor_high_confidence: 0.60`, `supervisor_low_confidence: 0.35`.
 
-If a single T is insufficient, learn per-bin temperatures for different confidence ranges.
-Standard threshold analysis already available from `calibration.py`.
+### Key Decision: Isotonic Over Platt
+
+Platt scaling failed. The fine-tuned model's raw confidence distribution is very narrow (~0.93 mean), causing Platt's optimizer to learn an extreme slope (`a = 17.63`). Post-Platt ECE was 0.1106 — barely better than raw (0.1331). Isotonic regression, being non-parametric, handled the narrow distribution by fitting a sharp step function. 12 knot points on 200 SLAKE val samples produced ECE 0.0047 on the validation set.
+
+### Threshold Re-Tuning
+
+After isotonic calibration, confidence scores become bimodal (near 0 and near 1). The Phase 5 thresholds (HIGH=0.85, LOW=0.55) were calibrated for raw scores and would have caused near-100% answering on calibrated scores. Threshold sweep on calibrated val scores:
+
+| low_t | abstain_rate | accuracy_when_answered |
+|-------|-------------|------------------------|
+| 0.30 | 1.0% | 80.8% |
+| 0.35 | 15.5% | 88.8% ← selected |
+| 0.40 | 28.3% | 91.2% |
+
+Selected: HIGH_CONF=0.60, LOW_CONF=0.35.
+
+### Results (VQA-RAD test, 451 samples)
+
+| Metric | Pre-6C (Config 5) | Post-6C (Config 6) | Δ |
+|--------|-------------------|--------------------|----|
+| Overall accuracy | 42.1% | 35.5% | −6.6 pp |
+| Accuracy when answered | 52.3% | 60.2% | +7.9 pp |
+| Abstention rate | 19.5% | 41.0% | +21.5 pp |
+| Correct abstention rate | 55.7% | 62.7% | +7.0 pp |
+| ECE | 0.214 | **0.075** | −0.139 |
+| AUROC | 0.761 | **0.868** | +0.107 |
+| Mean conf (correct) | — | 0.739 | — |
+| Mean conf (wrong) | — | 0.240 | — |
+
+ECE 0.075 meets the original <0.10 target.
 
 ---
 
-## 6. Phase 6D — Final Evaluation and Portfolio [PLANNED]
+## 6. Phase 6D — Final Evaluation and Portfolio [COMPLETE]
 
-**Dependency:** After Phase 6A + 6B + 6C are all complete.
+**Status:** Complete — 2026-02-27. Configs 2 and 4 evaluation runs pending (SageMaker).
 
-### 6D-1 — 6-Configuration Comprehensive Evaluation
+### 6D-1 — Ablation Framework
 
-Clean ablation across all Phase 6 components on VQA-RAD test split:
+New script `scripts/generate_ablation_report.py` loads all 6 evaluation result JSONs, builds the ablation table with component-level deltas, runs McNemar's tests for key pairs, and writes `ablation_report.md` + `ablation_summary.json`.
 
-| # | Config | VLM | LoRA | RAG | KG | Agreement | Calibration |
-|---|--------|-----|------|-----|-----|-----------|-------------|
-| 1 | baseline_vlm | Zero-shot | No | No | — | — | — |
-| 2 | baseline_agent | Zero-shot | No | Yes | Original | Keyword | — |
-| 3 | finetuned_vlm | Fine-tuned | Yes | No | — | — | — |
-| 4 | finetuned_agent | Fine-tuned | Yes | Yes | Original | Keyword | — |
-| 5 | full_pipeline | Fine-tuned | Yes | Yes | Expanded | Embedding | — |
-| 6 | full_calibrated | Fine-tuned | Yes | Yes | Expanded | Embedding | Temp |
+New configs for the two missing runs:
+- `configs/config2_baseline_agent.yaml` — zero-shot VLM + keyword agreement + original index
+- `configs/config4_finetuned_agent.yaml` — FT VLM + keyword agreement + original index
 
-Clean ablation: fine-tuning (3 vs 1), RAG with FT (4 vs 3), KG expansion (5 vs 4),
-calibration (6 vs 5), full vs baseline (6 vs 1).
+New `agreement_method` config field (default: `"embedding"`) added to `config.py` with keyword agreement branch restored in `supervisor.py` as `_compute_agreement_keyword()`. This makes the evaluation fully reproducible without code changes — only env-var overrides needed.
 
-### 6D-2 — Target Metrics
+### 6D-2 — Results (4 of 6 configs)
 
-| Metric | Pre Phase 6 | Target Post Phase 6 |
-|--------|-------------|---------------------|
-| Accuracy (when answered) | 47.9% | ≥80% |
-| Correct abstention rate | 73.2% | ≥85% |
-| ECE | 0.198 | <0.10 |
-| Abstention rate | 31.5% | 10–15% |
+| # | Config | Overall Acc | Acc (ans) | Abstain | ECE | AUROC |
+|---|--------|------------|-----------|---------|-----|-------|
+| 1 | baseline_vlm | 41.5% | 41.5% | 0% | 0.434 | 0.769 |
+| 2 | baseline_agent | pending | — | — | — | — |
+| 3 | finetuned_vlm | 50.8% | 50.8% | 0% | 0.351 | 0.751 |
+| 4 | finetuned_agent | pending | — | — | — | — |
+| 5 | full_pipeline | 42.1% | 52.3% | 19.5% | 0.214 | 0.761 |
+| 6 | full_calibrated | 35.5% | **60.2%** | 41.0% | **0.075** | **0.868** |
 
-### 6D-3 — Portfolio Packaging
+### 6D-3 — Portfolio Documentation
 
-Final repository structure with complete docs, ARCHITECTURE.md, EVALUATION.md, and a
-clean README.md summarising the full system.
+| File | Description |
+|------|-------------|
+| `ARCHITECTURE.md` | System overview: pipeline diagram, module map, data flow, 5 design decisions, tech stack |
+| `EVALUATION.md` | Complete evaluation story: 6-config ablation, component analysis, honest limitations, selective prediction argument, calibration analysis, methodology |
+| `README.md` | Project README: quick start, results table, setup, training, evaluation commands |
+| `docs/phase6c_calibration.md` | Phase 6C technical report: decisions, errors faced, results |
 
 ---
 

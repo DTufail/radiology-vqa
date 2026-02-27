@@ -105,7 +105,7 @@ def _load_dataset(dataset_name: str, split: str):
     if dataset_name == "slake":
         from radiology_vqa.slake_loader import load_slake
         from radiology_vqa.config import settings
-        samples = load_slake(settings.slake_dir, split=split, lang="en")
+        samples = load_slake(settings.slake_dir, split=split)  # English filtered internally
 
     elif dataset_name == "vqa_rad":
         from radiology_vqa.loader import load_vqa_rad
