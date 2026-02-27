@@ -30,3 +30,10 @@ rag:
   rrf_k: 60                          # RRF smoothing constant (standard value)
   retrieval_top_k: 5                 # Final top-K returned to agent after fusion
   retrieval_min_score: 0.0           # RRF scores are relative; no hard floor needed
+
+# Phase 6C calibration — default "none" preserves Phase 6B behaviour.
+# Run scripts/fit_calibration.py to produce the calibrator JSON, then
+# switch to configs/phase6_calibrated.yaml (or set these fields here).
+calibration:
+  calibration_method: "none"         # "none" | "platt" | "isotonic"
+  calibration_model_path: ""         # path to saved calibrator JSON

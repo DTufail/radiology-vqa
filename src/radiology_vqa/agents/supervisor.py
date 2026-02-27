@@ -274,7 +274,8 @@ def _compute_agreement(
     emb = embedder if embedder is not None else _get_embedder()
 
     # query_vec: shape (dim,), L2-normalised
-    query_vec = emb.embed_query(query_text)
+    # embed_query may return (1, dim) or (dim,) depending on the backend — flatten to 1D
+    query_vec = emb.embed_query(query_text).flatten()
 
     # Concatenate text + entity_name for richer evidence representation.
     # Both fields are present in every evidence dict produced by retrieval_agent_node.

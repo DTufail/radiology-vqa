@@ -1,7 +1,7 @@
 """VLM interface contract and structured prediction output."""
 
 import logging
-from typing import Protocol, runtime_checkable
+from typing import Optional, Protocol, runtime_checkable
 
 from PIL import Image
 from pydantic import BaseModel, Field
@@ -17,6 +17,9 @@ class VLMPrediction(BaseModel):
     raw_output: str
     model_name: str
     latency_seconds: float
+    # Phase 6C: raw (pre-calibration) confidence score.
+    # None when calibration is disabled (backward compatible).
+    raw_confidence: Optional[float] = None
 
 
 @runtime_checkable

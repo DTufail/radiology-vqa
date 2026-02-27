@@ -47,6 +47,8 @@ def create_vlm_backend(config: Settings) -> VLMInterface:
             max_new_tokens=config.vlm_max_new_tokens,
             concise_mode=config.vlm_concise_mode,
             adapter_path=config.vlm_adapter_path or None,
+            calibration_method=config.calibration_method,
+            calibration_model_path=config.calibration_model_path,
         )
 
     if backend == "blip2":

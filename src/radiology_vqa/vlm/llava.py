@@ -23,6 +23,10 @@ class LLaVABackend:
 
     Supports 4-bit / 8-bit quantization via bitsandbytes (CUDA only).
     Falls back to fp32 on CPU automatically.
+
+    Phase 6C: pass ``calibration_method`` and ``calibration_model_path`` to
+    apply post-hoc Platt or isotonic confidence calibration at inference time.
+    Default ``"none"`` preserves Phase 5/6A/6B behaviour exactly.
     """
 
     def __init__(
@@ -33,6 +37,8 @@ class LLaVABackend:
         max_new_tokens: int = 128,
         concise_mode: bool = True,
         adapter_path: Optional[str] = None,
+        calibration_method: str = "none",
+        calibration_model_path: str = "",
     ) -> None:
         self._model_id = model_id
         self._max_new_tokens = max_new_tokens
@@ -82,6 +88,53 @@ class LLaVABackend:
 
         self._inferred_device: torch.device = next(self._model.parameters()).device
         logger.info("LLaVA v1.6 loaded on device=%s.", self._inferred_device)
+
+        # Phase 6C: load confidence calibrator (graceful degradation on failure)
+        self._calibrator = self._load_calibrator(calibration_method, calibration_model_path)
+
+    # ── calibrator loading ────────────────────────────────────────────────────
+
+    def _load_calibrator(self, method: str, path: str):
+        """Load a post-hoc calibrator from disk. Returns None on any failure."""
+        if not method or method == "none":
+            return None
+        if not path:
+            logger.warning(
+                "calibration_method=%r but calibration_model_path is empty; "
+                "skipping calibration.",
+                method,
+            )
+            return None
+        if not os.path.isfile(path):
+            logger.warning(
+                "calibration_model_path %r not found; falling back to raw confidence.",
+                path,
+            )
+            return None
+        try:
+            if method == "platt":
+                from radiology_vqa.calibration.platt import PlattScaler
+                calibrator = PlattScaler.load(path)
+                logger.info("Platt calibrator loaded from %s", path)
+                return calibrator
+            elif method == "isotonic":
+                from radiology_vqa.calibration.isotonic import IsotonicCalibrator
+                calibrator = IsotonicCalibrator.load(path)
+                logger.info("Isotonic calibrator loaded from %s", path)
+                return calibrator
+            else:
+                logger.warning(
+                    "Unknown calibration_method=%r; skipping calibration.", method
+                )
+                return None
+        except Exception as e:
+            logger.warning(
+                "Failed to load calibrator from %r: %s. "
+                "Falling back to raw confidence.",
+                path,
+                e,
+            )
+            return None
 
     # ── model loading ─────────────────────────────────────────────────────────
 
@@ -187,7 +240,14 @@ class LLaVABackend:
         raw_output = self._processor.decode(generated_ids, skip_special_tokens=True)
         answer = raw_output.strip() or "unknown"
 
-        confidence = self._extract_confidence(output.scores, generated_ids)
+        raw_confidence = self._extract_confidence(output.scores, generated_ids)
+
+        # Phase 6C: apply post-hoc calibration if a calibrator is loaded.
+        if self._calibrator is not None:
+            confidence = self._calibrator.calibrate(raw_confidence)
+        else:
+            confidence = raw_confidence
+            raw_confidence = None  # omit field when calibration is disabled
 
         return VLMPrediction(
             answer=answer,
@@ -195,6 +255,7 @@ class LLaVABackend:
             raw_output=raw_output,
             model_name=self.model_name,
             latency_seconds=latency,
+            raw_confidence=raw_confidence,
         )
 
     def _extract_confidence(

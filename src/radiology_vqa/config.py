@@ -45,7 +45,17 @@ class Settings(BaseSettings):
     supervisor_evidence_threshold: float = 0.4  # min retrieval score to count as supporting
     supervisor_min_supporting_evidence: int = 1  # minimum supporting docs to count as grounded
     supervisor_max_retries: int = 1             # max re_query attempts before abstain
-    supervisor_semantic_threshold: float = 0.5  # min cosine similarity (Phase 6B-3 embedding agreement)
+    supervisor_semantic_threshold: float = 0.87  # min cosine similarity (Phase 6B-3 embedding agreement)
+    # Calibrated on S-PubMedBert-MS-MARCO: SAME/SYNONYM pairs score 0.88–0.93,
+    # DIFF medical pairs (pneumonia/kidney, cardiomegaly/pleural effusion) score 0.82–0.86.
+    # Natural gap: 0.857–0.882; 0.87 is the midpoint.
+
+    # Calibration settings (Phase 6C)
+    # "none" = Phase 5/6A/6B behaviour — no calibration (backward compatible).
+    # "platt" = Platt scaling (2-param logistic fit on validation set).
+    # "isotonic" = Isotonic regression (non-parametric, requires more data).
+    calibration_method: str = "none"
+    calibration_model_path: str = ""   # path to saved calibrator JSON
 
     # Benchmark settings
     benchmark_output_dir: Path = Path("./data/benchmarks")
