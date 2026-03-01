@@ -11,20 +11,22 @@ Each configuration isolates one component's contribution by changing exactly one
 | # | Config | VLM | LoRA | RAG | KG | Agreement | Cal. | Overall Acc | Acc (ans) | Abstain | ECE | AUROC |
 |---|--------|-----|------|-----|-----|-----------|------|-------------|-----------|---------|-----|-------|
 | 1 | baseline_vlm | ZS | — | — | — | — | — | 41.5% | 41.5% | 0% | 0.434 | 0.769 |
-| 2 | baseline_agent | ZS | — | Yes | Original | Keyword | — | — | — | — | — | — |
+| 2 | baseline_agent | ZS | — | Yes | Original | Keyword | — | 31.9% | 46.8% | 31.7% | 0.188 | 0.765 |
 | 3 | finetuned_vlm | FT | ✓ | — | — | — | — | 50.8% | 50.8% | 0% | 0.351 | 0.751 |
-| 4 | finetuned_agent | FT | ✓ | Yes | Original | Keyword | — | — | — | — | — | — |
+| 4 | finetuned_agent | FT | ✓ | Yes | Original | Keyword | — | 36.8% | 53.9% | 31.7% | 0.132 | 0.819 |
 | 5 | full_pipeline | FT | ✓ | Yes | Expanded | Embed | — | 42.1% | 52.3% | 19.5% | 0.214 | 0.761 |
 | 6 | full_calibrated | FT | ✓ | Yes | Expanded | Embed | Isotonic | 35.5% | 60.2% | 41.0% | 0.075 | 0.868 |
 
-> ZS = zero-shot (no adapter). FT = QLoRA fine-tuned. Original KG = SLAKE KG only (2,987 docs). Expanded KG = SLAKE KG + RadLex + QA pseudo-docs (13,435 docs). Acc (ans) = accuracy on non-abstained samples only. Configs 2 and 4 results pending SageMaker evaluation runs.
+> ZS = zero-shot (no adapter). FT = QLoRA fine-tuned. Original KG = SLAKE KG only (2,987 docs). Expanded KG = SLAKE KG + RadLex + QA pseudo-docs (13,435 docs). Acc (ans) = accuracy on non-abstained samples only.
 
 ### Per Question-Type (available configs)
 
 | # | Config | Closed Acc | Open Acc | Closed F1 | Closed n | Open n |
 |---|--------|-----------|---------|----------|--------|------|
 | 1 | baseline_vlm | 61.4% | 16.5% | 0.614 | 251 | 200 |
+| 2 | baseline_agent | 50.2% | 9.0% | 0.655 | 251 | 200 |
 | 3 | finetuned_vlm | 71.7% | 24.5% | 0.717 | 251 | 200 |
+| 4 | finetuned_agent | 55.4% | 13.5% | 0.652 | 251 | 200 |
 | 5 | full_pipeline | 58.6% | 21.5% | 0.684 | 251 | 200 |
 | 6 | full_calibrated | 50.6% | 16.5% | 0.684 | 147 | 119 |
 
@@ -40,15 +42,27 @@ QLoRA fine-tuning on 26,358 training samples (VQA-RAD + SLAKE + PathVQA) improve
 
 The fine-tuned model does produce higher raw confidence scores — typically 0.93–0.99 — compared to the zero-shot model. This is why ECE actually slightly worsened (0.434 → 0.351): the model became more assertive, but not proportionally more accurate.
 
-### RAG grounding (Config 2 vs Config 1 / Config 4 vs Config 3)
+### RAG grounding on zero-shot VLM (Config 2 vs Config 1): −9.6 pp overall, +5.3 pp when answered
 
-Results pending. The expected effect: the agent pipeline introduces abstention (trading overall accuracy for safety), while accuracy-when-answered should improve as the supervisor gates on retrieved evidence agreement. The zero-shot agent (Config 2) tests whether retrieval-augmented grounding adds value even without fine-tuning. The fine-tuned agent (Config 4) shows whether fine-tuning and RAG compose additively.
+Adding the agent pipeline to the zero-shot VLM drops overall accuracy from 41.5% to 31.9% — a 9.6 pp fall — while introducing a 31.7% abstention rate. Accuracy-when-answered rises from 41.5% to 46.8%, a 5.3 pp gain. The pattern is consistent with the design intent: the supervisor correctly withholds answers the VLM would have gotten wrong, but the zero-shot VLM's error rate is high enough that many correct predictions also get abstained on.
 
-### KG expansion + embedding agreement (Config 5 vs Config 4)
+The open accuracy drop is severe: 16.5% → 9.0%. The original KG (2,987 SLAKE KG docs) has poor coverage of the spatial and modality-type open questions in VQA-RAD, so the keyword agreement mechanism returns no support for most open questions, causing abstention. ECE improves from 0.434 to 0.188 even without calibration — the confidence-based routing passively filters overconfident wrong predictions.
 
-Results partially pending (Config 4 missing). Config 5 reaches 52.3% accuracy-when-answered, which we expect exceeds Config 4's accuracy-when-answered since the expanded index (13,435 docs vs 2,987) covers more clinical entities and the embedding agreement replaces the keyword matching that produced 61 over-abstentions in Phase 6A evaluation.
+### RAG grounding on fine-tuned VLM (Config 4 vs Config 3): −14.0 pp overall, +3.1 pp when answered
 
-The embedding-based agreement (PubMedBERT cosine similarity ≥ 0.87) handles synonyms that keyword matching missed: "tumor"/"neoplasm", "consolidation"/"opacity", "cardiac silhouette"/"cardiomegaly". BM25 in the hybrid retriever adds exact-term recall for cases where dense retrieval misses literal medical abbreviations.
+Adding the Phase 5 agent pipeline to the fine-tuned VLM drops overall accuracy from 50.8% to 36.8% — a 14.0 pp fall — while accuracy-when-answered rises from 50.8% to 53.9%, a 3.1 pp gain. The abstention rate is 31.7%, identical to Config 2, which makes sense: the same keyword-based agreement mechanism is in use.
+
+The fine-tuned model suffers more from abstention than the zero-shot model does, even though its answers are more accurate. The reason is overconfidence: the fine-tuned model outputs confidence scores in the 0.97–0.99 range almost uniformly. The supervisor's high-confidence threshold (0.85) is easily crossed, routing most predictions to the agreement check regardless of actual correctness. The keyword-based agreement then abstains on a large fraction because the original SLAKE KG (2,987 docs) has sparse coverage of the VQA-RAD question vocabulary. ECE improves substantially (0.351 → 0.132) because abstained samples (confidence=0.0) dilute the overconfidence pool.
+
+Open accuracy drops sharply: 24.5% → 13.5%. The fine-tuned model's improved open answers (spatial descriptions, modality terms) are not matched by corresponding KG coverage, so the keyword agreement returns empty support and the supervisor abstains. The re-query rate is 0.0 — the supervisor's retry mechanism does not trigger because the fine-tuned model's first-pass confidence almost always exceeds the high-confidence threshold.
+
+### KG expansion + embedding agreement (Config 5 vs Config 4): −14.6 pp overall, −1.6 pp when answered
+
+Config 5 (expanded KG + embedding agreement) scores 42.1% overall and 52.3% accuracy-when-answered, vs Config 4's 36.8% and 53.9%. Overall accuracy improves by 5.3 pp (fewer abstentions, abstention rate drops from 31.7% to 19.5%), but accuracy-when-answered falls 1.6 pp.
+
+The expanded index (13,435 docs) fills the coverage gaps that caused mass abstention in Config 4: consolidation terminology, modality vocabulary, and spatial QA pairs now have supporting documents. This reduces over-abstention on cases the fine-tuned model answered correctly. The embedding-based agreement (PubMedBERT cosine similarity ≥ 0.87) additionally rescues synonym cases that keyword matching missed: "tumor"/"neoplasm", "opacity"/"consolidation", "cardiac silhouette"/"cardiomegaly". BM25 hybrid retrieval adds exact-term recall for abbreviated clinical terminology.
+
+The slight accuracy-when-answered dip (53.9% → 52.3%) reflects that the expanded index also grounds some wrong answers: previously these would have abstained under keyword agreement, but now embedding agreement finds domain-adjacent documents that trigger a confidence pass. This is the known limitation of topical vs. binary agreement — the supervisor verifies that the VLM's answer is topically grounded, not that it is correct.
 
 ### Calibration — isotonic regression (Config 6 vs Config 5)
 

@@ -1411,7 +1411,7 @@ New `agreement_method` config field (default: `"embedding"`) added to `config.py
 | # | Config | Overall Acc | Acc (ans) | Abstain | ECE | AUROC |
 |---|--------|------------|-----------|---------|-----|-------|
 | 1 | baseline_vlm | 41.5% | 41.5% | 0% | 0.434 | 0.769 |
-| 2 | baseline_agent | pending | — | — | — | — |
+| 2 | baseline_agent | 31.9% | 46.8% | 31.7% | 0.188 | 0.765 |
 | 3 | finetuned_vlm | 50.8% | 50.8% | 0% | 0.351 | 0.751 |
 | 4 | finetuned_agent | pending | — | — | — | — |
 | 5 | full_pipeline | 42.1% | 52.3% | 19.5% | 0.214 | 0.761 |
