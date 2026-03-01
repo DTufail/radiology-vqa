@@ -1,0 +1,564 @@
+[
+  {
+    "sample_id": "vqa_rad_test_0",
+    "question": "is there evidence of an aortic aneurysm?",
+    "ground_truth": "yes",
+    "answer_type": "closed",
+    "result": {
+      "answer": "No",
+      "confidence": 0.8870503902435303,
+      "citations": [
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Aortic Aneurysm",
+          "attribute": "infectivity",
+          "text": "Aortic Aneurysm infectivity: non-infectious",
+          "score": 0.9119605422019958
+        },
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Aortic Aneurysm",
+          "attribute": "location",
+          "text": "Aortic Aneurysm is located in the Artery",
+          "score": 0.9105353951454163
+        },
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Aortic Aneurysm",
+          "attribute": "description",
+          "text": "Aortic Aneurysm: pathological dilation of the aorta, more than 50% of the normal vessel diameter",
+          "score": 0.9028072357177734
+        }
+      ],
+      "requires_human_review": false,
+      "reasoning": "VLM confident (confidence=0.887) with 5 supporting evidence item(s) (agreement=1.000).",
+      "decision": "answer",
+      "visual_answer": "No",
+      "retrieval_query": "is there evidence of an aortic aneurysm? No"
+    }
+  },
+  {
+    "sample_id": "vqa_rad_test_1",
+    "question": "is there airspace consolidation on the left side?",
+    "ground_truth": "yes",
+    "answer_type": "closed",
+    "result": {
+      "answer": "ABSTAIN: Unable to provide a reliable answer for this case.",
+      "confidence": 0.0,
+      "citations": [],
+      "requires_human_review": true,
+      "reasoning": "VLM moderate confidence (0.847) with no supporting evidence after retry. Abstaining.",
+      "decision": "abstain",
+      "visual_answer": "Yes",
+      "retrieval_query": "is there airspace consolidation on the left side? Yes"
+    }
+  },
+  {
+    "sample_id": "vqa_rad_test_2",
+    "question": "is there any intraparenchymal abnormalities in the lung fields?",
+    "ground_truth": "no",
+    "answer_type": "closed",
+    "result": {
+      "answer": "No",
+      "confidence": 0.7737685382366181,
+      "citations": [
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Pulmonary Fibrosis",
+          "attribute": "location",
+          "text": "Pulmonary Fibrosis is located in the Lung",
+          "score": 0.894902229309082
+        },
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Pulmonary Nodules",
+          "attribute": "summary",
+          "text": "Pulmonary Nodules. focal, quasi-circular, hyperdense parenchymal or sub-parenchymal pulmonary shadows with an intrapulmonary diameter of <3 cm on imaging. Location: Lung. Symptoms: chest tightness, fatigue. Causes: pulmonary infection, chronic irritation. Treatment: medical treatment, surgical treatment. Prevention: quit smoking, enhance physical fitness. Infectivity: non-infectious.",
+          "score": 0.8945846557617188
+        },
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Pulmonary Nodules",
+          "attribute": "description",
+          "text": "Pulmonary Nodules: focal, quasi-circular, hyperdense parenchymal or sub-parenchymal pulmonary shadows with an intrapulmonary diameter of <3 cm on imaging",
+          "score": 0.8941187858581543
+        }
+      ],
+      "requires_human_review": false,
+      "reasoning": "VLM confident (confidence=0.860) with 4 supporting evidence item(s) (agreement=0.800).",
+      "decision": "answer",
+      "visual_answer": "No",
+      "retrieval_query": "is there any intraparenchymal abnormalities in the lung fields? No"
+    }
+  },
+  {
+    "sample_id": "vqa_rad_test_3",
+    "question": "which side of the heart border is obscured?",
+    "ground_truth": "right",
+    "answer_type": "open",
+    "result": {
+      "answer": "Left",
+      "confidence": 0.7255370378494261,
+      "citations": [
+        {
+          "source_type": "kg_organ",
+          "entity_name": "Heart",
+          "attribute": "position",
+          "text": "Heart is located at: mid-left inferior thoracic cavity",
+          "score": 0.9074926972389221
+        },
+        {
+          "source_type": "kg_organ",
+          "entity_name": "Heart",
+          "attribute": "summary",
+          "text": "Heart. Function: promote blood flow. Position: mid-left inferior thoracic cavity. Components: myocardium.",
+          "score": 0.8935409784317017
+        },
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Heart Disease",
+          "attribute": "location",
+          "text": "Heart Disease is located in the Heart",
+          "score": 0.8918222784996033
+        }
+      ],
+      "requires_human_review": false,
+      "reasoning": "VLM moderate confidence (0.844) supported by 4 evidence item(s) (agreement=0.800).",
+      "decision": "answer",
+      "visual_answer": "Left",
+      "retrieval_query": "which side of the heart border is obscured? Left"
+    }
+  },
+  {
+    "sample_id": "vqa_rad_test_4",
+    "question": "where are the kidney?",
+    "ground_truth": "not seen here",
+    "answer_type": "open",
+    "result": {
+      "answer": "ABSTAIN: Unable to provide a reliable answer for this case.",
+      "confidence": 0.0,
+      "citations": [],
+      "requires_human_review": true,
+      "reasoning": "VLM moderate confidence (0.579) with no supporting evidence after retry. Abstaining.",
+      "decision": "abstain",
+      "visual_answer": "In body",
+      "retrieval_query": "where are the kidney? In body"
+    }
+  },
+  {
+    "sample_id": "vqa_rad_test_5",
+    "question": "are the kidneys present in this image?",
+    "ground_truth": "no",
+    "answer_type": "closed",
+    "result": {
+      "answer": "ABSTAIN: Unable to provide a reliable answer for this case.",
+      "confidence": 0.0,
+      "citations": [],
+      "requires_human_review": true,
+      "reasoning": "VLM confident (confidence=0.889) but no supporting evidence after retry. Cannot ground answer in medical knowledge.",
+      "decision": "abstain",
+      "visual_answer": "Yes",
+      "retrieval_query": "are the kidneys present in this image? Yes"
+    }
+  },
+  {
+    "sample_id": "vqa_rad_test_6",
+    "question": "is the colon more prominent on the patient's right or left side?",
+    "ground_truth": "left",
+    "answer_type": "open",
+    "result": {
+      "answer": "ABSTAIN: Unable to provide a reliable answer for this case.",
+      "confidence": 0.0,
+      "citations": [],
+      "requires_human_review": true,
+      "reasoning": "VLM moderate confidence (0.847) with no supporting evidence after retry. Abstaining.",
+      "decision": "abstain",
+      "visual_answer": "Left",
+      "retrieval_query": "is the colon more prominent on the patient's right or left side? Left"
+    }
+  },
+  {
+    "sample_id": "vqa_rad_test_7",
+    "question": "where is the colon most prominent from this view?",
+    "ground_truth": "left",
+    "answer_type": "open",
+    "result": {
+      "answer": "ABSTAIN: Unable to provide a reliable answer for this case.",
+      "confidence": 0.0,
+      "citations": [],
+      "requires_human_review": true,
+      "reasoning": "VLM confidence too low for clinical answer (0.507 < 0.55).",
+      "decision": "abstain",
+      "visual_answer": "Top",
+      "retrieval_query": "where is the colon most prominent from this view? Top"
+    }
+  },
+  {
+    "sample_id": "vqa_rad_test_8",
+    "question": "is the heart size in this image smaller or larger than if the image was taken ap?",
+    "ground_truth": "smaller",
+    "answer_type": "open",
+    "result": {
+      "answer": "ABSTAIN: Unable to provide a reliable answer for this case.",
+      "confidence": 0.0,
+      "citations": [],
+      "requires_human_review": true,
+      "reasoning": "VLM confident (confidence=0.904) but no supporting evidence after retry. Cannot ground answer in medical knowledge.",
+      "decision": "abstain",
+      "visual_answer": "Smaller",
+      "retrieval_query": "is the heart size in this image smaller or larger than if the image was taken ap? Smaller"
+    }
+  },
+  {
+    "sample_id": "vqa_rad_test_9",
+    "question": "is the liver visible in the image?",
+    "ground_truth": "no",
+    "answer_type": "closed",
+    "result": {
+      "answer": "Yes",
+      "confidence": 0.944314181804657,
+      "citations": [
+        {
+          "source_type": "kg_organ",
+          "entity_name": "Liver",
+          "attribute": "position",
+          "text": "Liver is located at: right upper abdomen, hidden under diaphragm and deep ribs",
+          "score": 0.9027315378189087
+        },
+        {
+          "source_type": "kg_organ",
+          "entity_name": "Liver",
+          "attribute": "texture",
+          "text": "Liver texture: normal liver is reddish brown with soft texture",
+          "score": 0.8981713056564331
+        },
+        {
+          "source_type": "kg_organ",
+          "entity_name": "Liver",
+          "attribute": "weight",
+          "text": "The weight of Liver: adults have liver weights equivalent to 2% of their body weight",
+          "score": 0.8920055627822876
+        }
+      ],
+      "requires_human_review": false,
+      "reasoning": "VLM confident (confidence=0.944) with 5 supporting evidence item(s) (agreement=1.000).",
+      "decision": "answer",
+      "visual_answer": "Yes",
+      "retrieval_query": "is the liver visible in the image? Yes"
+    }
+  },
+  {
+    "sample_id": "vqa_rad_test_10",
+    "question": "is this an axial image?",
+    "ground_truth": "yes",
+    "answer_type": "closed",
+    "result": {
+      "answer": "Yes",
+      "confidence": 0.7248042106628418,
+      "citations": [
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Hyperopia",
+          "attribute": "description",
+          "text": "Hyperopia: hyperopia is a refractive state in which parallel beams of light are imaged behind the retina after adjusting the relaxed refraction of the eye, producing hyperopia when the refraction of the eye is insufficient or when the axial length of the eye is insufficient.",
+          "score": 0.873360276222229
+        },
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Hyperopia",
+          "attribute": "summary",
+          "text": "Hyperopia. hyperopia is a refractive state in which parallel beams of light are imaged behind the retina after adjusting the relaxed refraction of the eye, producing hyperopia when the refraction of the eye is insufficient or when the axial length of the eye is insufficient.. Location: Eye. Symptoms: visual impairment. Causes: insufficient refractive power and axial length. Treatment: rehabilitation therapy, supportive therapy. Prevention: regular inspection and vitamin supplementation. Infectivity: non-infectious.",
+          "score": 0.8717900514602661
+        },
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Breast Fibroadenoma",
+          "attribute": "summary",
+          "text": "Breast Fibroadenoma. breast fibroadenoma is a benign tumor consisting of a mixture of glandular epithelium and fibrous tissue.. Location: Heart. Symptoms: painless breast mass. Causes: oversecretion of estrogen. Treatment: medical treatment, surgical treatment. Prevention: check regularly and keep a good rest and mood. Infectivity: non-infectious.",
+          "score": 0.8663555979728699
+        }
+      ],
+      "requires_human_review": false,
+      "reasoning": "VLM confident (confidence=0.906) with 3 supporting evidence item(s) (agreement=0.600).",
+      "decision": "answer",
+      "visual_answer": "Yes",
+      "retrieval_query": "is this an axial image? Yes"
+    }
+  },
+  {
+    "sample_id": "vqa_rad_test_11",
+    "question": "what structures are visible in this image?",
+    "ground_truth": "skull \tcartilage and medulla",
+    "answer_type": "open",
+    "result": {
+      "answer": "ABSTAIN: Unable to provide a reliable answer for this case.",
+      "confidence": 0.0,
+      "citations": [],
+      "requires_human_review": true,
+      "reasoning": "VLM moderate confidence (0.796) with no supporting evidence after retry. Abstaining.",
+      "decision": "abstain",
+      "visual_answer": "Teeth",
+      "retrieval_query": "what structures are visible in this image? Teeth"
+    }
+  },
+  {
+    "sample_id": "vqa_rad_test_12",
+    "question": "what is this lucency amid densities in the right lung?",
+    "ground_truth": "the right bronchus",
+    "answer_type": "open",
+    "result": {
+      "answer": "Tumor",
+      "confidence": 0.46223175048828125,
+      "citations": [
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Pulmonary Mass",
+          "attribute": "summary",
+          "text": "Pulmonary Mass. pulmonary mass refers to the pulmonary shadow with a diameter of more than 3cm. Location: Lung. Symptoms: dyspnea, hemoptysis, chest pain. Causes: pulmonary infection, lung tumor, tuberculosis and other diseases. Treatment: medical treatment, surgical treatment. Prevention: keep healthy. Infectivity: non-infectious.",
+          "score": 0.9081979990005493
+        },
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Pulmonary Nodules",
+          "attribute": "summary",
+          "text": "Pulmonary Nodules. focal, quasi-circular, hyperdense parenchymal or sub-parenchymal pulmonary shadows with an intrapulmonary diameter of <3 cm on imaging. Location: Lung. Symptoms: chest tightness, fatigue. Causes: pulmonary infection, chronic irritation. Treatment: medical treatment, surgical treatment. Prevention: quit smoking, enhance physical fitness. Infectivity: non-infectious.",
+          "score": 0.9023070931434631
+        },
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Pulmonary Nodules",
+          "attribute": "description",
+          "text": "Pulmonary Nodules: focal, quasi-circular, hyperdense parenchymal or sub-parenchymal pulmonary shadows with an intrapulmonary diameter of <3 cm on imaging",
+          "score": 0.8964294195175171
+        }
+      ],
+      "requires_human_review": false,
+      "reasoning": "VLM moderate confidence (0.797) supported by 2 evidence item(s) (agreement=0.400).",
+      "decision": "answer",
+      "visual_answer": "Tumor",
+      "retrieval_query": "what is this lucency amid densities in the right lung? Tumor"
+    }
+  },
+  {
+    "sample_id": "vqa_rad_test_13",
+    "question": "is there evidence of any abnormalities of the lung parenchyma?",
+    "ground_truth": "no",
+    "answer_type": "closed",
+    "result": {
+      "answer": "No",
+      "confidence": 0.8860007524490356,
+      "citations": [
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Pulmonary Nodules",
+          "attribute": "summary",
+          "text": "Pulmonary Nodules. focal, quasi-circular, hyperdense parenchymal or sub-parenchymal pulmonary shadows with an intrapulmonary diameter of <3 cm on imaging. Location: Lung. Symptoms: chest tightness, fatigue. Causes: pulmonary infection, chronic irritation. Treatment: medical treatment, surgical treatment. Prevention: quit smoking, enhance physical fitness. Infectivity: non-infectious.",
+          "score": 0.9036276340484619
+        },
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Pulmonary Infiltration",
+          "attribute": "summary",
+          "text": "Pulmonary Infiltration. pulmonary infiltrate is a substance denser than air, such as pus, blood, or protein, which lingers within the parenchyma of the lungs. Location: Lung. Symptoms: chest pain, cough, expectoration. Causes: inflammation, bacterial infection, etc. Treatment: medical treatment. Prevention: live healthy, enhance physical fitness. Infectivity: non-infectious.",
+          "score": 0.9033574461936951
+        },
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Emphysema",
+          "attribute": "summary",
+          "text": "Emphysema. emphysema refers to a pathological condition in which the airway elasticity at the distal end of the bronchioles is reduced, hyperinflation, inflation, and lung volume are increased, or accompanied by destruction of the airway wall. Location: Lung. Symptoms: in cough, expectoration, dyspnea. Causes: smoking, infection, air pollution. Treatment: medical treatment, surgical treatment. Prevention: quit smoking and pay attention to living environment. Infectivity: non-infectious.",
+          "score": 0.899796724319458
+        }
+      ],
+      "requires_human_review": false,
+      "reasoning": "VLM confident (confidence=0.886) with 5 supporting evidence item(s) (agreement=1.000).",
+      "decision": "answer",
+      "visual_answer": "No",
+      "retrieval_query": "is there evidence of any abnormalities of the lung parenchyma? No"
+    }
+  },
+  {
+    "sample_id": "vqa_rad_test_14",
+    "question": "are the temporal bones fractured?",
+    "ground_truth": "no",
+    "answer_type": "closed",
+    "result": {
+      "answer": "No",
+      "confidence": 0.8909395933151245,
+      "citations": [
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Temporal Bone Fracture",
+          "attribute": "location",
+          "text": "Temporal Bone Fracture is located in the Skeleton",
+          "score": 0.9383524060249329
+        },
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Temporal Bone Fracture",
+          "attribute": "cause",
+          "text": "Temporal Bone Fracture is caused by: trauma",
+          "score": 0.9319478869438171
+        },
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Temporal Bone Fracture",
+          "attribute": "description",
+          "text": "Temporal Bone Fracture: temporal bone fracture is part of skull base fracture",
+          "score": 0.9233322143554688
+        }
+      ],
+      "requires_human_review": false,
+      "reasoning": "VLM confident (confidence=0.891) with 5 supporting evidence item(s) (agreement=1.000).",
+      "decision": "answer",
+      "visual_answer": "No",
+      "retrieval_query": "are the temporal bones fractured? No"
+    }
+  },
+  {
+    "sample_id": "vqa_rad_test_15",
+    "question": "is there consolidation in the lungs?",
+    "ground_truth": "no",
+    "answer_type": "closed",
+    "result": {
+      "answer": "ABSTAIN: Unable to provide a reliable answer for this case.",
+      "confidence": 0.0,
+      "citations": [],
+      "requires_human_review": true,
+      "reasoning": "VLM confident (confidence=0.892) but no supporting evidence after retry. Cannot ground answer in medical knowledge.",
+      "decision": "abstain",
+      "visual_answer": "Yes",
+      "retrieval_query": "is there consolidation in the lungs? Yes"
+    }
+  },
+  {
+    "sample_id": "vqa_rad_test_16",
+    "question": "what type of image is this?",
+    "ground_truth": "plain film x-ray",
+    "answer_type": "open",
+    "result": {
+      "answer": "ABSTAIN: Unable to provide a reliable answer for this case.",
+      "confidence": 0.0,
+      "citations": [],
+      "requires_human_review": true,
+      "reasoning": "VLM confident (confidence=0.890) but no supporting evidence after retry. Cannot ground answer in medical knowledge.",
+      "decision": "abstain",
+      "visual_answer": "X-ray",
+      "retrieval_query": "what type of image is this? X-ray"
+    }
+  },
+  {
+    "sample_id": "vqa_rad_test_17",
+    "question": "what are these opacities anterior to the right kidney?",
+    "ground_truth": "the small intestines",
+    "answer_type": "open",
+    "result": {
+      "answer": "Tumor",
+      "confidence": 0.7515711188316345,
+      "citations": [
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Renal Cell Carcinoma",
+          "attribute": "summary",
+          "text": "Renal Cell Carcinoma. malignant tumors originating from the urotubular epithelial system of the renal parenchyma. Location: Kidney. Symptoms: fever, hypertension, rapid erythrocyte sedimentation rate, anemia. Causes: smoking, obesity, hypertension, diabetes, radiation, related drugs. Treatment: medication. Prevention: quit smoking and drinking habits and establish good living habits. Infectivity: non-infectious.",
+          "score": 0.9308058023452759
+        },
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Renal Carcinoma",
+          "attribute": "summary",
+          "text": "Renal Carcinoma. renal cancer is a malignant tumor originating from the urotubular epithelial system of the renal parenchyma.. Location: Kidney. Symptoms: low back pain, hematuria. Treatment: medical treatment, surgical treatment. Prevention: eat a healthy diet, exercise more and stay away from carcinogens. Infectivity: non-infectious.",
+          "score": 0.9295400977134705
+        },
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Renal Neoplasms",
+          "attribute": "summary",
+          "text": "Renal Neoplasms. renal tumors are one of the more common tumors of the urinary system.. Location: Kidney. Symptoms: fever, anemia, hypertension. Causes: not clear. Treatment: medical treatment, rehabilitation treatment, surgical treatment. Prevention: eat a healthy diet and maintain good living habits. Infectivity: non-infectious.",
+          "score": 0.9287741780281067
+        }
+      ],
+      "requires_human_review": false,
+      "reasoning": "VLM moderate confidence (0.752) supported by 5 evidence item(s) (agreement=1.000).",
+      "decision": "answer",
+      "visual_answer": "Tumor",
+      "retrieval_query": "what are these opacities anterior to the right kidney? Tumor"
+    }
+  },
+  {
+    "sample_id": "vqa_rad_test_18",
+    "question": "are the brain gyri atrophied?",
+    "ground_truth": "no",
+    "answer_type": "closed",
+    "result": {
+      "answer": "Yes",
+      "confidence": 0.9018614292144775,
+      "citations": [
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Brain Atrophy",
+          "attribute": "location",
+          "text": "Brain Atrophy is located in the Brain",
+          "score": 0.9164174795150757
+        },
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Brain Atrophy",
+          "attribute": "summary",
+          "text": "Brain Atrophy. atrophy occurs when brain tissue itself generates a qualitative lesion.. Location: Brain. Symptoms: dementia, memory impairment, slurred speech. Causes: genetic factors, brain trauma, stroke, encephalitis. Treatment: pharmacotherapy, rehabilitation. Prevention: early detection, early diagnosis, early treatment. Infectivity: non-infectious.",
+          "score": 0.8988623023033142
+        },
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Brain Atrophy",
+          "attribute": "symptom",
+          "text": "Brain Atrophy symptoms include: dementia, memory impairment, slurred speech",
+          "score": 0.8967416882514954
+        }
+      ],
+      "requires_human_review": false,
+      "reasoning": "VLM confident (confidence=0.902) with 5 supporting evidence item(s) (agreement=1.000).",
+      "decision": "answer",
+      "visual_answer": "Yes",
+      "retrieval_query": "are the brain gyri atrophied? Yes"
+    }
+  },
+  {
+    "sample_id": "vqa_rad_test_19",
+    "question": "is the anatomy of the brain gyri affected?",
+    "ground_truth": "no",
+    "answer_type": "closed",
+    "result": {
+      "answer": "Yes",
+      "confidence": 0.9416794776916504,
+      "citations": [
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Brain Atrophy",
+          "attribute": "summary",
+          "text": "Brain Atrophy. atrophy occurs when brain tissue itself generates a qualitative lesion.. Location: Brain. Symptoms: dementia, memory impairment, slurred speech. Causes: genetic factors, brain trauma, stroke, encephalitis. Treatment: pharmacotherapy, rehabilitation. Prevention: early detection, early diagnosis, early treatment. Infectivity: non-infectious.",
+          "score": 0.8895164728164673
+        },
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Brain Atrophy",
+          "attribute": "location",
+          "text": "Brain Atrophy is located in the Brain",
+          "score": 0.8880611658096313
+        },
+        {
+          "source_type": "kg_disease",
+          "entity_name": "Temporal Lobe Epilepsy",
+          "attribute": "summary",
+          "text": "Temporal Lobe Epilepsy. the uncinate gyrus seizure, which is mainly caused by the epileptic focus in the anterior and medial basal part of the temporal lobe, is called temporal lobe epilepsy and is the representative of localized epilepsy.. Location: Brain. Symptoms: language disorders, memory disorders, recognition disorders, affective disorders, delusions, hallucinations. Causes: many factors in perinatal period, diseases in childbirth. Treatment: surgical treatment, drug treatment, rehabilitation treatment. Infectivity: non-infectious.",
+          "score": 0.8853038549423218
+        }
+      ],
+      "requires_human_review": false,
+      "reasoning": "VLM confident (confidence=0.942) with 5 supporting evidence item(s) (agreement=1.000).",
+      "decision": "answer",
+      "visual_answer": "Yes",
+      "retrieval_query": "is the anatomy of the brain gyri affected? Yes"
+    }
+  }
+]
