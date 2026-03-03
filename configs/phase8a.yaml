@@ -1,0 +1,49 @@
+# Phase 8A configuration — expanded knowledge index (v3).
+#
+# Changes from Phase 7A:
+#   - index_dir: data/indices_v3  (adds qa_vqarad + qa_slake pseudo-documents)
+#   - bm25_index_dir: data/bm25_index_v3  (rebuilt with same expanded corpus)
+#   - Citation hit rate target: 40%+ (was 15.3% in Phase 7A)
+#
+# All other settings (calibration, thresholds, adapter) are inherited from
+# configs/phase7a.yaml — do not change them here.
+#
+# Build command that produced data/indices_v3 and data/bm25_index_v3:
+#   python scripts/build_faiss_index.py \
+#     --sources kg radlex qa \
+#     --bm25 \
+#     --bm25-dir data/bm25_index_v3 \
+#     --output-index-dir data/indices_v3
+
+vlm:
+  backend: "llava"
+  model_id: "llava-hf/llava-v1.6-mistral-7b-hf"
+  quantize: "4bit"
+  max_new_tokens: 128
+  device: "auto"
+  concise_mode: true
+  adapter_path: "checkpoints/llava-med-qlora/best"
+
+data:
+  index_dir: "data/indices_v3"
+
+rag:
+  retrieval_method: "hybrid"
+  bm25_index_dir: "data/bm25_index_v3"
+  bm25_top_k: 20
+  dense_top_k: 20
+  rrf_k: 60
+  retrieval_top_k: 5
+  retrieval_min_score: 0.0
+
+calibration_method: "isotonic"
+calibration_model_path: "data/calibration/mixed/isotonic_scaler.json"
+
+agent:
+  supervisor_closed_high_confidence: 0.50
+  supervisor_closed_low_confidence:  0.15
+  supervisor_open_high_confidence:   0.50
+  supervisor_open_low_confidence:    0.25
+  supervisor_max_retries: 1
+  agreement_method: "embedding"
+  supervisor_semantic_threshold: 0.87

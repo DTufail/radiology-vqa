@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 class DocumentMeta(BaseModel):
     """Provenance metadata for a single indexed document chunk."""
 
-    source_type: str  # "kg_disease", "kg_organ", "kg_organ_rel", "pubmed", "slake_qa"
+    source_type: str  # "kg_disease","kg_organ","kg_organ_rel","radlex","qa_vqarad","qa_slake"
     entity_name: str  # disease/organ name, or PubMed article ID
     attribute: str  # "symptom", "treatment", "function", "summary", "abstract", etc.
     source_file: str  # originating file name

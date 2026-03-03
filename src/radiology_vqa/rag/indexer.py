@@ -54,13 +54,14 @@ class FAISSIndexer:
 
         self._documents = list(documents)
 
-    def save(self, index_dir: Path) -> None:
+    def save(self, index_dir: Path | str, index_version: str = "1.0.0") -> None:
         """Persist index, documents, and metadata to disk."""
         import faiss
 
         if self._index is None:
             raise RuntimeError("Call build_index() before save().")
 
+        index_dir = Path(index_dir)
         index_dir.mkdir(parents=True, exist_ok=True)
 
         faiss.write_index(self._index, str(index_dir / "index.faiss"))
@@ -69,11 +70,14 @@ class FAISSIndexer:
             for doc in self._documents:
                 f.write(doc.model_dump_json() + "\n")
 
+        sources = sorted({doc.meta.source_type for doc in self._documents})
         meta = {
             "doc_count": len(self._documents),
             "embedding_model": self._embedder.model_name,
             "dimension": self._embedder.dimension,
             "built_at": datetime.now(timezone.utc).isoformat(),
+            "sources": sources,
+            "index_version": index_version,
         }
         with open(index_dir / "index_meta.json", "w", encoding="utf-8") as f:
             json.dump(meta, f, indent=2)
@@ -104,5 +108,13 @@ class FAISSIndexer:
 
         with open(meta_path, encoding="utf-8") as f:
             meta = json.load(f)
+
+        version = meta.get("index_version", "unknown")
+        sources = meta.get("sources", [])
+        logger.info(
+            "Index version=%s sources=%s",
+            version,
+            sources,
+        )
 
         return index, documents, meta

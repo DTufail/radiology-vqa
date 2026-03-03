@@ -197,7 +197,13 @@ def main() -> None:
     indexer.build_index(documents)
 
     print(f"Saving index to {output_index_dir} ...")
-    indexer.save(output_index_dir)
+    # Determine version from output dir name for traceability
+    _dir_name = Path(output_index_dir).name  # e.g. "indices_v3"
+    _version = "3.0.0" if "v3" in _dir_name else (
+        "2.0.0" if "v2" in _dir_name else "1.0.0"
+    )
+    indexer.save(output_index_dir, index_version=_version)
+    logger.info("Saved index version=%s to %s", _version, output_index_dir)
 
     if args.bm25:
         print(f"\nBuilding BM25 index in {args.bm25_dir} ...")
