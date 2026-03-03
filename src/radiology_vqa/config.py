@@ -50,6 +50,16 @@ class Settings(BaseSettings):
     # DIFF medical pairs (pneumonia/kidney, cardiomegaly/pleural effusion) score 0.82–0.86.
     # Natural gap: 0.857–0.882; 0.87 is the midpoint.
 
+    # Per-question-type supervisor thresholds (Phase 7A-1)
+    # Closed questions (yes/no binary) have higher baseline accuracy (71.7% FT, Config 3).
+    # A lower low_confidence threshold reduces over-abstention on correct closed answers.
+    # Defaults preserve Phase 6 behaviour when answer_type is unknown or "open".
+    # Set to 0.0 to disable per-type routing (falls back to supervisor_high/low_confidence).
+    supervisor_closed_high_confidence: float = 0.60   # closed: high-confidence gate
+    supervisor_closed_low_confidence: float = 0.20    # closed: abstention gate (much lower)
+    supervisor_open_high_confidence: float = 0.85     # open: same as current HIGH_CONFIDENCE
+    supervisor_open_low_confidence: float = 0.55      # open: same as current LOW_CONFIDENCE
+
     # Agreement method for supervisor (Phase 6D config support)
     # "embedding" = Phase 6B-3 cosine similarity (default, current behaviour).
     # "keyword"   = Phase 5 keyword/token matching (used for ablation configs 2 and 4).

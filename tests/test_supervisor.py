@@ -607,3 +607,238 @@ class TestClosedQuestionAgreement:
         result = supervisor_node(state)
         # 'liver' from visual_answer matches evidence → agreement > 0
         assert result["agreement_score"] > 0.0
+
+
+# ── Per-type confidence thresholds (Phase 7A-1) ────────────────────────────────
+
+
+class TestPerTypeThresholds:
+    """Verify that closed and open questions use separate confidence thresholds.
+
+    Phase 7A-1: closed questions use supervisor_closed_{high,low}_confidence.
+    Open questions use supervisor_open_{high,low}_confidence (same as Phase 6 defaults).
+    All tests use monkeypatch to override settings — no GPU, no model loading.
+    """
+
+    def test_closed_question_answers_at_low_confidence_with_evidence(self, monkeypatch):
+        """closed + conf=0.30 + evidence → should answer (not abstain) with low closed threshold.
+
+        With closed_low_confidence=0.20: 0.30 >= 0.20, enters Case C range → answer.
+        With the old global LOW_CONFIDENCE=0.55: 0.30 < 0.55 → would abstain (Case E).
+        This is the core regression being fixed.
+        """
+        from radiology_vqa.config import settings
+        monkeypatch.setattr(settings, "supervisor_closed_low_confidence", 0.20)
+        monkeypatch.setattr(settings, "supervisor_closed_high_confidence", 0.60)
+        monkeypatch.setattr(settings, "supervisor_open_low_confidence", 0.55)
+        monkeypatch.setattr(settings, "supervisor_open_high_confidence", 0.85)
+
+        state = _make_state(
+            visual_confidence=0.30,
+            evidence=PNEUMONIA_EVIDENCE,
+            visual_answer="yes",
+            answer_type="closed",
+            question="Is there pneumonia visible?",
+        )
+        result = supervisor_node(state)
+        assert result["decision"] == "answer", (
+            "closed question with conf=0.30 and evidence should answer "
+            "when closed_low_confidence=0.20, not abstain"
+        )
+
+    def test_open_question_abstains_at_same_low_confidence(self, monkeypatch):
+        """open + conf=0.30 + evidence → should abstain with open threshold = 0.55.
+
+        The open thresholds are unchanged from Phase 6, so 0.30 < 0.55 → Case E → abstain.
+        This confirms the two question types are independently controlled.
+        """
+        from radiology_vqa.config import settings
+        monkeypatch.setattr(settings, "supervisor_closed_low_confidence", 0.20)
+        monkeypatch.setattr(settings, "supervisor_closed_high_confidence", 0.60)
+        monkeypatch.setattr(settings, "supervisor_open_low_confidence", 0.55)
+        monkeypatch.setattr(settings, "supervisor_open_high_confidence", 0.85)
+
+        state = _make_state(
+            visual_confidence=0.30,
+            evidence=PNEUMONIA_EVIDENCE,
+            visual_answer="pneumonia",
+            answer_type="open",
+            question="What is the diagnosis?",
+        )
+        result = supervisor_node(state)
+        assert result["decision"] == "abstain", (
+            "open question with conf=0.30 should still abstain "
+            "when open_low_confidence=0.55"
+        )
+
+    def test_closed_question_re_queries_when_above_closed_low_but_no_evidence(self, monkeypatch):
+        """closed + conf=0.30 + no evidence → re_query, not abstain.
+
+        With closed_low_confidence=0.20: 0.30 >= 0.20 (moderate range).
+        No evidence → Case D → re_query (at retry_count=0).
+        """
+        from radiology_vqa.config import settings
+        monkeypatch.setattr(settings, "supervisor_closed_low_confidence", 0.20)
+        monkeypatch.setattr(settings, "supervisor_closed_high_confidence", 0.60)
+        monkeypatch.setattr(settings, "supervisor_open_low_confidence", 0.55)
+        monkeypatch.setattr(settings, "supervisor_open_high_confidence", 0.85)
+
+        state = _make_state(
+            visual_confidence=0.30,
+            evidence=[],
+            visual_answer="yes",
+            answer_type="closed",
+            question="Is there consolidation?",
+            retry_count=0,
+        )
+        result = supervisor_node(state)
+        assert result["decision"] == "re_query", (
+            "closed question with conf=0.30 and no evidence should re_query "
+            "(not abstain) when closed_low_confidence=0.20"
+        )
+
+    def test_closed_below_closed_low_confidence_still_abstains(self, monkeypatch):
+        """closed + conf=0.10 → abstain even with closed_low_confidence=0.20.
+
+        The new lower threshold still has a floor. Confidence below 0.20 → Case E.
+        """
+        from radiology_vqa.config import settings
+        monkeypatch.setattr(settings, "supervisor_closed_low_confidence", 0.20)
+        monkeypatch.setattr(settings, "supervisor_closed_high_confidence", 0.60)
+
+        state = _make_state(
+            visual_confidence=0.10,
+            evidence=PNEUMONIA_EVIDENCE,
+            visual_answer="yes",
+            answer_type="closed",
+            question="Is there pneumonia?",
+        )
+        result = supervisor_node(state)
+        assert result["decision"] == "abstain", (
+            "closed question with conf=0.10 should still abstain "
+            "because 0.10 < closed_low_confidence=0.20"
+        )
+
+    def test_closed_high_confidence_with_evidence_answers(self, monkeypatch):
+        """closed + conf=0.70 >= closed_high_confidence=0.60 + evidence → Case A → answer."""
+        from radiology_vqa.config import settings
+        monkeypatch.setattr(settings, "supervisor_closed_low_confidence", 0.20)
+        monkeypatch.setattr(settings, "supervisor_closed_high_confidence", 0.60)
+
+        state = _make_state(
+            visual_confidence=0.70,
+            evidence=PNEUMONIA_EVIDENCE,
+            visual_answer="yes",
+            answer_type="closed",
+            question="Is there pneumonia?",
+        )
+        result = supervisor_node(state)
+        assert result["decision"] == "answer"
+        assert result["grounded_confidence"] > 0.0
+
+    def test_per_type_disabled_falls_back_to_global_thresholds(self, monkeypatch):
+        """If closed_low_confidence=0.0 (disabled), fall back to global LOW_CONFIDENCE.
+
+        This tests the 0.0-disables-per-type contract.
+        With global LOW_CONFIDENCE=0.55 and conf=0.30, should abstain.
+        """
+        from radiology_vqa.config import settings
+        monkeypatch.setattr(settings, "supervisor_closed_low_confidence", 0.0)   # disabled
+        monkeypatch.setattr(settings, "supervisor_closed_high_confidence", 0.0)  # disabled
+        monkeypatch.setattr(settings, "supervisor_low_confidence", 0.55)         # global fallback
+        monkeypatch.setattr(settings, "supervisor_high_confidence", 0.85)
+
+        state = _make_state(
+            visual_confidence=0.30,
+            evidence=PNEUMONIA_EVIDENCE,
+            visual_answer="yes",
+            answer_type="closed",
+            question="Is there pneumonia?",
+        )
+        result = supervisor_node(state)
+        assert result["decision"] == "abstain", (
+            "when closed per-type thresholds are disabled (0.0), "
+            "should fall back to global LOW_CONFIDENCE=0.55 and abstain"
+        )
+
+    def test_unknown_answer_type_uses_open_thresholds(self, monkeypatch):
+        """answer_type not 'closed' → treated as 'open', uses open thresholds.
+
+        Any value other than 'closed' (including missing/unknown) should use open thresholds.
+        With open_low_confidence=0.55 and conf=0.30 → Case E → abstain.
+        """
+        from radiology_vqa.config import settings
+        monkeypatch.setattr(settings, "supervisor_open_low_confidence", 0.55)
+        monkeypatch.setattr(settings, "supervisor_open_high_confidence", 0.85)
+
+        state = _make_state(
+            visual_confidence=0.30,
+            evidence=PNEUMONIA_EVIDENCE,
+            visual_answer="pneumonia",
+            answer_type="unknown_type",  # neither "closed" nor "open"
+            question="What is visible?",
+        )
+        result = supervisor_node(state)
+        assert result["decision"] == "abstain", (
+            "unknown answer_type should fall through to open thresholds, "
+            "causing abstain at conf=0.30 < open_low_confidence=0.55"
+        )
+
+    def test_decision_reasoning_includes_answer_type_on_abstain(self, monkeypatch):
+        """When Case E triggers, decision_reasoning should mention answer_type.
+
+        This supports auditability — logs should be traceable to which branch fired.
+        """
+        from radiology_vqa.config import settings
+        monkeypatch.setattr(settings, "supervisor_open_low_confidence", 0.55)
+
+        state = _make_state(
+            visual_confidence=0.10,
+            evidence=[],
+            visual_answer="pneumonia",
+            answer_type="open",
+            question="What is the diagnosis?",
+        )
+        result = supervisor_node(state)
+        assert result["decision"] == "abstain"
+        assert "open" in result["decision_reasoning"], (
+            "decision_reasoning should include answer_type='open' when Case E fires"
+        )
+
+    def test_all_existing_cases_unaffected_with_default_open_thresholds(self, monkeypatch):
+        """Regression test: existing Phase 6 behaviour is preserved when open thresholds
+        match the Phase 6 global defaults exactly.
+
+        This ensures the refactor is a strict superset — no existing test should break.
+        Uses the same confidence values and evidence as TestCaseA/B/C/D/E.
+        """
+        from radiology_vqa.config import settings
+        # Set open thresholds to exactly match Phase 6 global defaults
+        monkeypatch.setattr(settings, "supervisor_open_high_confidence", 0.85)
+        monkeypatch.setattr(settings, "supervisor_open_low_confidence", 0.55)
+        monkeypatch.setattr(settings, "supervisor_closed_high_confidence", 0.60)
+        monkeypatch.setattr(settings, "supervisor_closed_low_confidence", 0.20)
+
+        # These are the exact same inputs used in TestCaseA–E for open questions.
+        # They must produce the same results as before.
+        cases = [
+            # (conf, evidence, retry, expected_decision)
+            (0.92, PNEUMONIA_EVIDENCE, 0, "answer"),   # Case A
+            (0.90, [],                 0, "re_query"),  # Case B
+            (0.90, [],                 1, "abstain"),   # Case B2
+            (0.70, PNEUMONIA_EVIDENCE, 0, "answer"),   # Case C
+            (0.60, [],                 0, "re_query"),  # Case D
+            (0.60, [],                 1, "abstain"),   # Case D2
+            (0.40, PNEUMONIA_EVIDENCE, 0, "abstain"),  # Case E
+        ]
+        for conf, evidence, retry, expected in cases:
+            state = _make_state(
+                conf, evidence,
+                visual_answer="pneumonia", answer_type="open",
+                retry_count=retry,
+            )
+            result = supervisor_node(state)
+            assert result["decision"] == expected, (
+                f"Regression: open question conf={conf} retry={retry} evidence={len(evidence)} "
+                f"expected={expected!r} got={result['decision']!r}"
+            )

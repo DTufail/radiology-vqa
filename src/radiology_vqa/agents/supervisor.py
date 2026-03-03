@@ -14,6 +14,14 @@ meaning no additional model is loaded. Cosine similarity handles synonyms and pa
 that keyword matching misses ("tumor"/"neoplasm", "consolidation"/"opacity",
 "cardiac silhouette"/"cardiomegaly"), directly targeting the 61 over-abstentions
 observed in the Phase 6A evaluation.
+
+Phase 7A-1 adds per-question-type thresholds. Closed questions (answer_type="closed")
+use supervisor_closed_high_confidence and supervisor_closed_low_confidence, which
+are intentionally lower than the global values because the fine-tuned VLM is far
+more reliable on binary yes/no questions (71.7% accuracy, Config 3) than on open
+questions (16.5–24.5%). Open questions fall back to supervisor_open_high_confidence
+and supervisor_open_low_confidence, which default to the Phase 6 global values.
+If a per-type field is 0.0 (disabled), the corresponding global field is used instead.
 """
 
 import logging
@@ -59,11 +67,41 @@ def supervisor_node(state: AgentState) -> AgentState:
         C: moderate confidence + evidence       → answer
         D: moderate confidence + no evidence    → re_query (retry=0) or abstain
         E: low confidence                       → abstain (regardless of evidence)
+
+    Thresholds are now per-type:
+        closed: uses supervisor_closed_{high,low}_confidence (lower bar → fewer abstentions)
+        open:   uses supervisor_open_{high,low}_confidence   (same as Phase 6 defaults)
     """
     from radiology_vqa.config import settings
 
-    high_conf: float = getattr(settings, "supervisor_high_confidence", HIGH_CONFIDENCE)
-    low_conf: float = getattr(settings, "supervisor_low_confidence", LOW_CONFIDENCE)
+    # ── Threshold resolution ───────────────────────────────────────────────────────
+    # answer_type is already read below (line 79), but we need it here first for
+    # threshold selection. Read it directly from state — safe because state is
+    # total=False (all keys optional), so .get() with a default is required.
+    _answer_type_for_thresholds: str = state.get("answer_type", "open")
+
+    if _answer_type_for_thresholds == "closed":
+        # Per-type thresholds for closed (yes/no) questions.
+        # Fall back to global values if per-type fields are 0.0 (disabled).
+        _closed_high = getattr(settings, "supervisor_closed_high_confidence", 0.0)
+        _closed_low  = getattr(settings, "supervisor_closed_low_confidence",  0.0)
+        high_conf: float = _closed_high if _closed_high > 0.0 else getattr(
+            settings, "supervisor_high_confidence", HIGH_CONFIDENCE
+        )
+        low_conf: float  = _closed_low  if _closed_low  > 0.0 else getattr(
+            settings, "supervisor_low_confidence", LOW_CONFIDENCE
+        )
+    else:
+        # "open" or unknown → use open-specific fields (same as Phase 6 global defaults).
+        _open_high = getattr(settings, "supervisor_open_high_confidence", 0.0)
+        _open_low  = getattr(settings, "supervisor_open_low_confidence",  0.0)
+        high_conf: float = _open_high if _open_high > 0.0 else getattr(
+            settings, "supervisor_high_confidence", HIGH_CONFIDENCE
+        )
+        low_conf: float  = _open_low  if _open_low  > 0.0 else getattr(
+            settings, "supervisor_low_confidence", LOW_CONFIDENCE
+        )
+
     support_threshold: float = getattr(
         settings, "supervisor_evidence_threshold", EVIDENCE_SUPPORT_THRESHOLD
     )
@@ -193,9 +231,12 @@ def supervisor_node(state: AgentState) -> AgentState:
         updates["grounded_confidence"] = 0.0
         updates["decision_reasoning"] = (
             f"VLM confidence too low for clinical answer "
-            f"({visual_confidence:.3f} < {low_conf})."
+            f"({visual_confidence:.3f} < {low_conf:.3f}, answer_type={_answer_type_for_thresholds!r})."
         )
-        logger.info("Supervisor [Case E]: abstain low_conf=%.3f", visual_confidence)
+        logger.info(
+            "Supervisor [Case E]: abstain conf=%.3f < low_conf=%.3f (answer_type=%r)",
+            visual_confidence, low_conf, _answer_type_for_thresholds,
+        )
 
     return {**state, **updates}
 
