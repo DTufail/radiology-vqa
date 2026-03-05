@@ -82,9 +82,9 @@ class Settings(BaseSettings):
 
     # Evaluation settings (Phase 5B)
     eval_output_dir: Path = Path("./data/evaluation_reports")
-eval_bertscore_model: str = "microsoft/deberta-xlarge-mnli"
-eval_calibration_bins: int = 10
-eval_intermediate_save_interval: int = 50
+    eval_bertscore_model: str = "microsoft/deberta-xlarge-mnli"
+    eval_calibration_bins: int = 10
+    eval_intermediate_save_interval: int = 50
 
     log_level: str = "INFO"
 
