@@ -1,6 +1,6 @@
 # Grounded Multi-Agent Radiology VQA
 
-A retrieval-augmented visual question answering system for radiology. The system combines a QLoRA fine-tuned LLaVA-Next 7B model with a hybrid knowledge retrieval pipeline and a deterministic supervisor that decides when to answer and when to abstain. When it answers, it is right 60.2% of the time. When it is uncertain, it says so. ECE 0.075 — well-calibrated confidence.
+A retrieval-augmented visual question answering system for radiology. The system combines a QLoRA fine-tuned LLaVA-Next 7B model with a hybrid knowledge retrieval pipeline and a deterministic supervisor that decides when to answer and when to abstain. **Phase 8A result: 50.3% overall accuracy, 71.7% closed accuracy, 44.9% citation hit rate, 7.1% abstention on VQA-RAD test (451 samples).** ECE 0.091 — well-calibrated confidence.
 
 ---
 
@@ -12,13 +12,11 @@ python scripts/quick_inference.py \
   --image path/to/xray.png \
   --question "Is there consolidation in the left lung?"
 
-# With fine-tuned adapter and calibration
-VLM_ADAPTER_PATH=checkpoints/llava-med-qlora/best \
-CALIBRATION_METHOD=isotonic \
-CALIBRATION_MODEL_PATH=data/calibration/isotonic_scaler.json \
-  python scripts/quick_inference.py \
-    --image path/to/xray.png \
-    --question "Is there consolidation in the left lung?"
+# Phase 8A defaults — no env vars needed (baked into config.py)
+# adapter, isotonic calibration, hybrid retrieval, and indices_v3 are all defaults
+python scripts/quick_inference.py \
+  --image path/to/xray.png \
+  --question "Is there consolidation in the left lung?"
 ```
 
 ---
@@ -37,7 +35,8 @@ Image + Question → Entry Node
                        ▼
               Supervisor (deterministic, rule-based)
               PubMedBERT embedding agreement ≥ 0.87
-              HIGH_CONF=0.60 / LOW_CONF=0.35
+              HIGH_CONF=0.50 / LOW_CONF=0.15  (closed)
+              HIGH_CONF=0.50 / LOW_CONF=0.25  (open)
                        │
               ┌────────┼────────┐
               ▼        ▼        ▼
@@ -57,14 +56,16 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full module map, data flow, and d
 
 Evaluated on VQA-RAD test (451 samples). Full ablation in [EVALUATION.md](EVALUATION.md).
 
-| Config | Overall Acc | Acc (when answered) | Abstain | ECE | AUROC |
-|--------|------------|--------------------|---------|----|-------|
-| 1. Zero-shot VLM | 41.5% | 41.5% | 0% | 0.434 | 0.769 |
-| 3. Fine-tuned VLM | 50.8% | 50.8% | 0% | 0.351 | 0.751 |
-| 5. FT + full agent | 42.1% | 52.3% | 19.5% | 0.214 | 0.761 |
-| **6. FT + agent + calibration** | **35.5%** | **60.2%** | **41.0%** | **0.075** | **0.868** |
+| Config | Overall Acc | Closed Acc | Open Acc | Abstain | Citation | ECE | AUROC |
+|--------|------------|-----------|---------|---------|---------|-----|-------|
+| 1. Zero-shot VLM | 41.5% | 61.4% | 16.5% | 0% | — | 0.434 | 0.769 |
+| 3. Fine-tuned VLM | 50.8% | 71.7% | 24.5% | 0% | — | 0.351 | 0.751 |
+| 5. FT + full agent (Phase 6) | 42.1% | 58.6% | 21.5% | 19.5% | 15.3% | 0.214 | 0.761 |
+| 6. FT + agent + calibration (Phase 6C) | 35.5% | 50.6% | 16.5% | 41.0% | 15.3% | 0.075 | 0.868 |
+| 7. Phase 7A — mixed calibrator | 42.1% | 58.6% | 21.5% | 21.5% | 15.3% | 0.081 | 0.793 |
+| **8. Phase 8A — QA index v3 (FINAL)** | **50.3%** | **71.7%** | **23.5%** | **7.1%** | **44.9%** | **0.091** | **0.755** |
 
-The calibrated system answers 59% of questions and is correct 60% of the time. AUROC 0.868 means its confidence scores are a strong signal of correctness. See [EVALUATION.md](EVALUATION.md) for the honest limitations.
+The Phase 8A system answers 92.9% of questions and is correct 50.3% overall (54.2% when it chooses to answer). At threshold 0.85, it answers 19.5% of questions with 88.6% accuracy — suitable for high-precision clinical use. AUROC 0.755 means confidence scores are a useful signal of correctness. See [EVALUATION.md](EVALUATION.md) for the full ablation and calibration analysis.
 
 ---
 
@@ -266,13 +267,13 @@ All test configuration flags default to Phase 5 behavior. Adding a new Phase 6 f
 All settings are in `src/radiology_vqa/config.py` and can be overridden via environment variables (uppercase field name) or a `.env` file:
 
 ```bash
-# Key environment variables
+# Key environment variables (Phase 8A production defaults — already set in config.py)
 VLM_ADAPTER_PATH=checkpoints/llava-med-qlora/best
-RETRIEVAL_METHOD=hybrid           # "dense" (Phase 5) or "hybrid" (Phase 6B)
-INDEX_DIR=data/indices_v2         # "data/indices" or "data/indices_v2"
+RETRIEVAL_METHOD=hybrid           # "dense" (Phase 5) or "hybrid" (Phase 6B+)
+INDEX_DIR=data/indices_v3         # "data/indices" (v1), "data/indices_v2" (v2), "data/indices_v3" (Phase 8A)
 AGREEMENT_METHOD=embedding        # "keyword" (Phase 5) or "embedding" (Phase 6B-3)
 CALIBRATION_METHOD=isotonic       # "none", "platt", or "isotonic"
-CALIBRATION_MODEL_PATH=data/calibration/isotonic_scaler.json
-SUPERVISOR_HIGH_CONFIDENCE=0.60
-SUPERVISOR_LOW_CONFIDENCE=0.35
+CALIBRATION_MODEL_PATH=data/calibration/mixed/isotonic_scaler.json  # Phase 8A mixed calibrator
+SUPERVISOR_HIGH_CONFIDENCE=0.50   # Phase 8A (was 0.85 in Phase 5, 0.60 in Phase 6C)
+SUPERVISOR_LOW_CONFIDENCE=0.15    # Phase 8A (was 0.55 in Phase 5, 0.35 in Phase 6C)
 ```

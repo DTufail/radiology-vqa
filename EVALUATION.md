@@ -8,16 +8,19 @@ Complete evaluation results for the Grounded Multi-Agent Radiology VQA system ac
 
 Each configuration isolates one component's contribution by changing exactly one variable from the previous config.
 
-| # | Config | VLM | LoRA | RAG | KG | Agreement | Cal. | Overall Acc | Acc (ans) | Abstain | ECE | AUROC |
-|---|--------|-----|------|-----|-----|-----------|------|-------------|-----------|---------|-----|-------|
-| 1 | baseline_vlm | ZS | — | — | — | — | — | 41.5% | 41.5% | 0% | 0.434 | 0.769 |
-| 2 | baseline_agent | ZS | — | Yes | Original | Keyword | — | 31.9% | 46.8% | 31.7% | 0.188 | 0.765 |
-| 3 | finetuned_vlm | FT | ✓ | — | — | — | — | 50.8% | 50.8% | 0% | 0.351 | 0.751 |
-| 4 | finetuned_agent | FT | ✓ | Yes | Original | Keyword | — | 36.8% | 53.9% | 31.7% | 0.132 | 0.819 |
-| 5 | full_pipeline | FT | ✓ | Yes | Expanded | Embed | — | 42.1% | 52.3% | 19.5% | 0.214 | 0.761 |
-| 6 | full_calibrated | FT | ✓ | Yes | Expanded | Embed | Isotonic | 35.5% | 60.2% | 41.0% | 0.075 | 0.868 |
+| # | Config | VLM | LoRA | RAG | KG | Agreement | Cal. | Index | Overall Acc | Acc (ans) | Abstain | Citation | ECE | AUROC |
+|---|--------|-----|------|-----|-----|-----------|------|-------|-------------|-----------|---------|---------|-----|-------|
+| 1 | baseline_vlm | ZS | — | — | — | — | — | — | 41.5% | 41.5% | 0% | — | 0.434 | 0.769 |
+| 2 | baseline_agent | ZS | — | Yes | Original | Keyword | — | v1 | 31.9% | 46.8% | 31.7% | 15.3% | 0.188 | 0.765 |
+| 3 | finetuned_vlm | FT | ✓ | — | — | — | — | — | 50.8% | 50.8% | 0% | — | 0.351 | 0.751 |
+| 4 | finetuned_agent | FT | ✓ | Yes | Original | Keyword | — | v1 | 36.8% | 53.9% | 31.7% | 15.3% | 0.132 | 0.819 |
+| 5 | full_pipeline | FT | ✓ | Yes | Expanded | Embed | — | v2 | 42.1% | 52.3% | 19.5% | 15.3% | 0.214 | 0.761 |
+| 6 | full_calibrated (Phase 6C) | FT | ✓ | Yes | Expanded | Embed | Isotonic (SLAKE) | v2 | 35.5% | 60.2% | 41.0% | 15.3% | 0.075 | 0.868 |
+| 7 | Phase 7A — mixed calibrator | FT | ✓ | Yes | Expanded | Embed | Isotonic (mixed) | v2 | 42.1% | 53.7% | 21.5% | 15.3% | 0.081 | 0.793 |
+| **8** | **Phase 8A — QA index v3** | **FT** | **✓** | **Yes** | **Expanded+QA** | **Embed** | **Isotonic (mixed)** | **v3** | **50.3%** | **54.2%** | **7.1%** | **44.9%** | **0.091** | **0.755** |
 
-> ZS = zero-shot (no adapter). FT = QLoRA fine-tuned. Original KG = SLAKE KG only (2,987 docs). Expanded KG = SLAKE KG + RadLex + QA pseudo-docs (13,435 docs). Acc (ans) = accuracy on non-abstained samples only.
+> ZS = zero-shot (no adapter). FT = QLoRA fine-tuned. Original KG = SLAKE KG only (2,987 docs). Expanded KG = SLAKE KG + RadLex (6,724 docs). Expanded+QA = SLAKE KG + RadLex + QA pseudo-docs (13,435 docs). Acc (ans) = accuracy on non-abstained samples only.
+> Index v1 = SLAKE KG only (2,987 docs). Index v2 = KG + RadLex (6,724 docs). Index v3 = KG + RadLex + QA pseudo-docs (13,435 docs). Mixed = SLAKE val + VQA-RAD train 10%.
 
 ### Per Question-Type (available configs)
 
@@ -29,8 +32,10 @@ Each configuration isolates one component's contribution by changing exactly one
 | 4 | finetuned_agent | 55.4% | 13.5% | 0.652 | 251 | 200 |
 | 5 | full_pipeline | 58.6% | 21.5% | 0.684 | 251 | 200 |
 | 6 | full_calibrated | 50.6% | 16.5% | 0.684 | 147 | 119 |
+| 7 | Phase 7A | 58.6% | 21.5% | 0.684 | 251 | 200 |
+| **8** | **Phase 8A (FINAL)** | **71.7%** | **23.5%** | **0.699** | **249** | **200** |
 
-> Config 6 closed/open counts are lower because 41% of samples are abstained on; the denominators reflect answered samples only.
+> Config 6 closed/open counts are lower because 41% of samples are abstained on; the denominators reflect answered samples only. Config 8 closed_n=249 because 2 samples were excluded as non-binary answers.
 
 ---
 
@@ -97,7 +102,86 @@ In a clinical decision support setting, these properties matter differently than
 **41% abstention is clinically aggressive.** The calibrated system abstains on nearly half of all questions. Whether this is acceptable depends on deployment context. In settings where radiologist review is available, 41% handoff rate may be acceptable. In settings where VQA must answer to be useful at all, Config 5 (19.5% abstention, 52.3% accuracy-when-answered) is a better operating point.
 
 **Open-ended questions remain weak.** Open accuracy across all configs spans 16.5%–24.5%. The model struggles with anatomical description and spatial localization ("where is the opacity?", "what is the shape of the mass?"). This is partly a training data limitation — short answer QA pairs don't teach anatomical description — and partly a fundamental limitation of extracting spatial information from compressed 7B model weights.
+---
 
+## Phase 7A — Calibration Domain Fix
+
+**Goal:** Reduce the 41% over-abstention caused by SLAKE→VQA-RAD calibration mismatch.
+
+**Root cause:** The isotonic calibrator (Phase 6C) was fitted on SLAKE validation data only. SLAKE images (hospital, structured questions) have a different confidence distribution than VQA-RAD. The calibrated scores for VQA-RAD clustered below 0.35, triggering abstention on samples the model answered correctly.
+
+**Fix:** Re-fitted isotonic calibrator on a **mixed validation set**:
+- 200 SLAKE validation samples
+- ~306 VQA-RAD train samples (last 10%, never used in test)
+
+| Metric | Phase 6C | Phase 7A | Change |
+|---|---|---|---|
+| Abstention rate | 41.0% | 21.5% | -19.5pp |
+| Overall accuracy | 35.5% | 42.1% | +6.6pp |
+| ECE | 0.075 | 0.081 | +0.006 |
+| Citation hit rate | 15.3% | 15.3% | — |
+
+---
+
+## Phase 8A — QA Pseudo-Document Index Expansion (FINAL)
+
+**Goal:** Increase citation hit rate above 40% without retraining the VLM.
+
+**Change:** Added 6,711 QA pseudo-documents (VQA-RAD train + SLAKE train pairs) to the retrieval index, bringing total corpus from 6,724 to 13,435 documents. BM25 can now find near-exact question paraphrases — the dominant source of citation hits.
+
+**Index v3 composition:**
+
+| Source | Documents | Notes |
+|---|---|---|
+| kg_disease | 2,501 | Disease KG triples |
+| kg_organ | 383 | Organ KG triples |
+| kg_organ_rel | 103 | Organ relationship triples |
+| radlex | 3,737 | RadLex Tier 1 definitions |
+| qa_vqarad | 1,793 | VQA-RAD train QA pairs ← NEW |
+| qa_slake | 4,918 | SLAKE train QA pairs (English) ← NEW |
+| **Total** | **13,435** | +6,711 from Phase 7A |
+
+**Config bug fixed:** Three Phase 8A evaluation runs (v1, v2, tuned) produced incorrect results (33.7%) because `config.py` hardcoded defaults were Phase 5 values and no `.env` file existed. Fix: updated `config.py` class-level defaults to Phase 8A production values.
+
+| Metric | Phase 7A | Phase 8A | Change |
+|---|---|---|---|
+| Overall accuracy | 42.1% | **50.3%** | +8.2pp |
+| Closed accuracy | 58.6% | **71.7%** | +13.1pp |
+| Open accuracy | 21.5% | **23.5%** | +2.0pp |
+| Open token F1 | — | **0.301** | — |
+| Open BERTScore F1 | — | **0.655** | — |
+| Abstention rate | 21.5% | **7.1%** | -14.4pp |
+| Citation hit rate | 15.3% | **44.9%** | +29.6pp |
+| ECE | 0.081 | 0.091 | +0.010 |
+| AUROC | 0.793 | 0.755 | -0.038 |
+
+> AUROC regression is expected: lower abstention includes harder borderline samples.
+> ECE regression is due to calibrator fitted before index expansion — fixable by re-fitting on Phase 8A data.
+
+### Threshold Analysis (Phase 8A)
+
+| Threshold | Coverage | Accuracy | Use case |
+|---|---|---|---|
+| 0.50 | 55.4% | 66.8% | Broad coverage |
+| 0.65 | 46.8% | 69.7% | Balanced |
+| 0.75 | 28.2% | 80.3% | Conservative |
+| **0.85** | **19.5%** | **88.6%** | **Clinical recommended** |
+| 0.90 | 13.5% | 90.2% | High-precision |
+
+### Calibration Bins (Phase 8A)
+
+| Bin | Count | Mean Conf | Accuracy | Gap | Status |
+|---|---|---|---|---|---|
+| [0.0, 0.1) | 32 | 0.000 | 0.000 | 0.000 | ✅ abstained |
+| [0.1, 0.2) | 15 | 0.162 | 0.200 | 0.038 | ✅ good |
+| [0.2, 0.3) | 32 | 0.250 | 0.344 | 0.094 | 🟡 underconfident |
+| [0.3, 0.4) | 75 | 0.339 | 0.400 | 0.061 | ✅ good |
+| [0.4, 0.5) | 47 | 0.451 | 0.340 | 0.110 | 🟡 overconfident |
+| [0.5, 0.6) | 22 | 0.545 | 0.500 | 0.045 | ✅ good |
+| [0.6, 0.7) | 91 | 0.678 | 0.549 | 0.128 | 🔴 overconfident |
+| [0.7, 0.8) | 17 | 0.742 | 0.588 | 0.154 | 🔴 overconfident |
+| [0.8, 0.9) | 59 | 0.829 | 0.695 | 0.134 | 🔴 overconfident |
+| [0.9, 1.0) | 61 | 0.975 | 0.902 | 0.074 | ✅ excellent |
 **Calibration was fit on SLAKE validation, transferred to VQA-RAD test.** The isotonic calibrator was fit on 200 SLAKE validation samples. VQA-RAD test has a different question distribution and higher open-question difficulty. The calibration transfers reasonably (ECE 0.075 on VQA-RAD test), but the abstention rate (41%) is higher than what the threshold sweep predicted on the validation set (15.5%). The calibrator underestimates how difficult VQA-RAD open questions are for the fine-tuned model.
 
 **Correct abstention rate (62.7%) is better than random but not clinically reliable.** If abstentions were random, the correct abstention rate would equal the error rate (~40%). 62.7% shows the signal is better than random, but a clinical deployment would want this above 80% before relying on it as a triage signal.

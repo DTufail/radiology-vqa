@@ -11,9 +11,9 @@ Grounded Multi-Agent Radiology VQA — a retrieval-augmented visual question ans
 │                                                                                │
 │  SLAKE KG CSVs ─┐                                                             │
 │  RadLex.xls    ─┼─► Processors ──► Documents ──► Embedder ──► FAISSIndexer   │
-│  QA pseudo-docs─┘   (KG, RadLex,   (~13K docs)   (S-PubMed  data/indices_v2  │
+│  QA pseudo-docs─┘   (KG, RadLex,   (13,435 docs)  (S-PubMed  data/indices_v3  │
 │                       QA)                          Bert)                      │
-│                                                    BM25Index ──► data/bm25_index│
+│                                                    BM25Index ──► data/bm25_index_v3│
 └────────────────────────────────────────────────────────────────────────────────┘
                                       │
                                loaded at startup
@@ -35,7 +35,7 @@ Grounded Multi-Agent Radiology VQA — a retrieval-augmented visual question ans
 │       ▼                                                                        │
 │  Supervisor — deterministic rule-based fusion                                 │
 │       │  embedding agreement (PubMedBERT cosine ≥ 0.87)                      │
-│       │  threshold routing: HIGH_CONF=0.60 / LOW_CONF=0.35                   │
+│       │  threshold routing: closed HIGH=0.50/LOW=0.15 | open HIGH=0.50/LOW=0.25│
 │       ├── answer    → Output Formatter → grounded_answer + citations          │
 │       ├── re_query  → Retrieval Agent (re-query with question only)           │
 │       └── abstain   → Output Formatter → empty answer + reasoning             │
@@ -116,11 +116,11 @@ src/radiology_vqa/
 
 4. **Supervisor** applies the 5-case routing logic:
    - Computes `agreement_score` via PubMedBERT cosine similarity between the query embedding and evidence embeddings (threshold 0.87).
-   - `visual_confidence ≥ 0.60 + agreement > 0` → **answer** (Case A, grounded_confidence = conf × 0.75 + 0.25 × agreement)
-   - `visual_confidence ≥ 0.60 + no agreement` → **re_query** if retry < 1, else **abstain** (Case B)
-   - `0.35 ≤ visual_confidence < 0.60 + agreement > 0` → **answer** (Case C, grounded_confidence = conf × 0.3 + 0.7 × agreement)
-   - `0.35 ≤ visual_confidence < 0.60 + no agreement` → **re_query** / **abstain** (Case D)
-   - `visual_confidence < 0.35` → **abstain** regardless of evidence (Case E)
+   - `visual_confidence ≥ 0.50 + agreement > 0` → **answer** (Case A, grounded_confidence = conf × 0.75 + 0.25 × agreement)
+   - `visual_confidence ≥ 0.50 + no agreement` → **re_query** if retry < 1, else **abstain** (Case B)
+   - Closed: `0.15 ≤ visual_confidence < 0.50 + agreement > 0` → **answer** (Case C); Open: `0.25 ≤ visual_confidence < 0.50 + agreement > 0` → **answer** (Case C)
+   - Closed: `0.15 ≤ visual_confidence < 0.50 + no agreement` → **re_query** / **abstain** (Case D); Open: `0.25 ≤ visual_confidence < 0.50 + no agreement` → **re_query** / **abstain** (Case D)
+   - Closed: `visual_confidence < 0.15` → **abstain** regardless of evidence (Case E); Open: `visual_confidence < 0.25` → **abstain** (Case E)
 
 5. **Output formatter** serialises the final decision into `SystemOutput`. Abstentions have an empty `final_answer` with `decision="abstain"` and `reasoning` explaining why.
 
@@ -142,6 +142,31 @@ Training a 7B parameter model to convergence requires ~22 GB VRAM. QLoRA (4-bit 
 
 **5. Configuration-driven A/B testing.**
 Every Phase 6 improvement has a config flag with the previous phase's behavior as its default. `retrieval_method="dense"` preserves Phase 5 behavior; `"hybrid"` enables Phase 6B. `agreement_method="keyword"` restores Phase 5 supervisor; `"embedding"` is Phase 6B-3. `calibration_method="none"` is uncalibrated; `"isotonic"` is Phase 6C. This means any Phase 6 config can be reproduced by environment variables with no code changes.
+
+---
+
+## Phase 7A & Phase 8A Changes
+
+### Phase 7A — Mixed Calibration (2025)
+
+**Problem:** Phase 6C calibrator (fitted on SLAKE val only) over-abstained on VQA-RAD — 41% abstention rate.
+
+**Change:** Re-fitted isotonic calibrator on a mixed validation set (200 SLAKE val + ~306 VQA-RAD train 10%). Config: `calibration_model_path=data/calibration/mixed/isotonic_scaler.json`.
+
+**Impact:** Abstention dropped from 41.0% → 21.5%; overall accuracy 35.5% → 42.1%.
+
+### Phase 8A — QA Pseudo-Document Index v3 (2025)
+
+**Problem:** Citation hit rate was 15.3% because the index (v2) contained only KG triples and RadLex definitions — no question-answer pairs for BM25 near-match retrieval.
+
+**Changes:**
+- Added 6,711 QA pseudo-documents (VQA-RAD train + SLAKE train pairs formatted as `Q: ... A: ...`) to build index v3 (13,435 docs total)
+- `index_dir` changed from `data/indices_v2` → `data/indices_v3`
+- `bm25_index_dir` changed from `data/bm25_index` → `data/bm25_index_v3`
+- Supervisor thresholds updated: `supervisor_high_confidence` 0.60 → 0.50; `supervisor_low_confidence` split into `supervisor_closed_low=0.15` (closed questions) and `supervisor_open_low=0.25` (open questions)
+- Config defaults updated in `config.py` (class-level) to Phase 8A values to avoid Pydantic Settings fallback to Phase 5 defaults
+
+**Impact:** Citation hit rate 15.3% → 44.9%; overall accuracy 42.1% → 50.3%; abstention 21.5% → 7.1%.
 
 ---
 
