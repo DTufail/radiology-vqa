@@ -1,6 +1,6 @@
 # Grounded Multi-Agent Radiology VQA
 
-A retrieval-augmented visual question answering system for radiology. The system combines a QLoRA fine-tuned LLaVA-Next 7B model with a hybrid knowledge retrieval pipeline and a deterministic supervisor that decides when to answer and when to abstain. **Phase 8A result: 50.3% overall accuracy, 71.7% closed accuracy, 44.9% citation hit rate, 7.1% abstention on VQA-RAD test (451 samples).** ECE 0.091 — well-calibrated confidence.
+A retrieval-augmented visual question answering system for radiology. The system combines a QLoRA fine-tuned LLaVA-Next 7B model with a hybrid knowledge retrieval pipeline and a deterministic supervisor that decides when to answer and when to abstain. ** 50.3% overall accuracy, 71.7% closed accuracy, 44.9% citation hit rate, 7.1% abstention on VQA-RAD test (451 samples).** ECE 0.091 — well-calibrated confidence.
 
 ---
 
